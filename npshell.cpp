@@ -54,78 +54,102 @@ void doFork(vector<vector<string>> cmds, vector<pipeinfo> &pipe_table, bool &pip
                 }
                 break;
             }
+        }
 
-            pid = fork();
-            pid_list.push_back(pid);
+        pid = fork();
+        pid_list.push_back(pid);
 
-            if(pid < 0){
-                // If failed to fork
-                pid_list.pop_back();
-                usleep(1000);
-                i--;
-                continue;
-            }else if(pid == 0){
-                // Child
-                bool is_file = false;
-                vector<char *> cmd_arg_tmp;
+        if(pid < 0){
+            // If failed to fork
+            pid_list.pop_back();
+            usleep(1000);
+            i--;
+            continue;
+        }else if(pid == 0){
+            // Child
+            bool is_file = false;
+            vector<char *> cmd_arg_tmp;
 
-                // Convert string vector cmd to char** to put into execvp
-                for(int j = 0; j < cmds.at(i).size(); j++){
-                    cmd_arg_tmp.push_back(strdup(cmds.at(i).at(j).c_str()));
-                }
-                cmd_arg_tmp.push_back(NULL);
-                char **cmd_arg = &cmd_arg_tmp[0];
+            // Convert string vector cmd to char** to put into execvp
+            for(int j = 0; j < cmds.at(i).size(); j++){
+                cmd_arg_tmp.push_back(strdup(cmds.at(i).at(j).c_str()));
+            }
+            cmd_arg_tmp.push_back(NULL);
+            char **cmd_arg = &cmd_arg_tmp[0];
 
-                for(int j = 0; j < pipe_table.size(); j++){
-                    if(pipe_table.at(j).behind_cmd_idx == i){
-                        if(pipe_table.at(j).pipe_type == 0){
-                            // Intput redirection
-                            int in_file_fd = open((cmds.at(i+1).at(0)).c_str(), O_RDWR | O_CREAT | O_TRUNC, S_IRWXU | S_IRWXG | S_IRWXO);
+            for(int j = 0; j < pipe_table.size(); j++){
+                if(pipe_table.at(j).behind_cmd_idx == i){
+                    if(pipe_table.at(j).pipe_type == 0){
+                        // Intput redirection
+                        int in_file_fd = open((cmds.at(i+1).at(0)).c_str(), O_RDWR | O_CREAT | O_TRUNC, S_IRWXU | S_IRWXG | S_IRWXO);
 
-                            dup2(in_file_fd, 1);
-                        }else if(pipe_table.at(j).pipe_type == 1){
-                            // Output redirection
-                            int out_file_fd = open((cmds.at(i+1).at(0)).c_str(), O_RDWR | O_CREAT | O_TRUNC, S_IRWXU | S_IRWXG | S_IRWXO);
+                        dup2(in_file_fd, 1);
+                    }else if(pipe_table.at(j).pipe_type == 1){
+                        // Output redirection
+                        int out_file_fd = open((cmds.at(i+1).at(0)).c_str(), O_RDWR | O_CREAT | O_TRUNC, S_IRWXU | S_IRWXG | S_IRWXO);
 
-                            dup2(out_file_fd, 1);
-                        }else if(pipe_table.at(j).pipe_type == 2){
-                            // Normal pipe
-                            dup2(pipe_table.at(j).in, 1);
-                        }else if(pipe_table.at(j).pipe_type == 3){
-                            // Number pipe
-                            dup2(pipe_table.at(j).in, 1);
-                        }else if(pipe_table.at(j).pipe_type == 4){
-                            // Number pipe with stderr
-                            dup2(pipe_table.at(j).in, 1);
-                        }
-                    }
-
-                    if(pipe_table.at(j-1).behind_cmd_idx == i-1 && (pipe_table.at(j-1).pipe_type == 0 || pipe_table.at(j-1).pipe_type == 1)){
-                        is_file = true;
-                    }else if(pipe_table.at(j-1).behind_cmd_idx == i-1 && pipe_table.at(j-1).pipe_type == 2){
-                        dup2(pipe_table.at(j-1).out, 0);
+                        dup2(out_file_fd, 1);
+                    }else if(pipe_table.at(j).pipe_type == 2){
+                        // Normal pipe
+                        dup2(pipe_table.at(j).in, 1);
+                    }else if(pipe_table.at(j).pipe_type == 3){
+                        // Number pipe
+                        dup2(pipe_table.at(j).in, 1);
+                    }else if(pipe_table.at(j).pipe_type == 4){
+                        // Number pipe with stderr
+                        dup2(pipe_table.at(j).in, 1);
                     }
                 }
 
-                for(int j = 0; j < pipe_table.size(); j++){
-                    if(pipe_table.at(j).pipe_type != 0 && pipe_table.at(j).pipe_type != 1){
-                        close(pipe_table.at(j).out);
-                        close(pipe_table.at(j).in);
-                    }
+                if(i != 0 && pipe_table.at(j).behind_cmd_idx == i-1 && (pipe_table.at(j).pipe_type == 0 || pipe_table.at(j).pipe_type == 1)){
+                    is_file = true;
+                }else if(i != 0 && pipe_table.at(j).behind_cmd_idx == i-1 && pipe_table.at(j).pipe_type == 2){
+                    dup2(pipe_table.at(j).out, 0);
                 }
-
-                if(!is_file){
-                    execvp(cmds.at(i).at(0).c_str(), cmd_arg);
-
-                    cerr << "Unknown command: [" << cmds.at(i).at(0).c_str() << "]." << endl;
-                    exit(EXIT_FAILURE);
-                }else{
-                    exit(EXIT_SUCCESS);
-                }
-            }else{
-                // Parent
             }
 
+            for(int j = 0; j < pipe_table.size(); j++){
+                if(pipe_table.at(j).pipe_type != 0 && pipe_table.at(j).pipe_type != 1){
+                    close(pipe_table.at(j).out);
+                    close(pipe_table.at(j).in);
+                }
+            }
+
+            if(!is_file){
+                execvp(cmds.at(i).at(0).c_str(), cmd_arg);
+
+                cerr << "Unknown command: [" << cmds.at(i).at(0).c_str() << "]." << endl;
+                exit(EXIT_FAILURE);
+            }else{
+                exit(EXIT_SUCCESS);
+            }
+        }else{
+            // Parent
+        }
+
+        for(int j = 0; j < pipe_table.size(); ){
+            if(i != 0 && pipe_table.at(j).behind_cmd_idx == i-1){
+                if(pipe_table.at(j).pipe_type == 2){
+                    close(pipe_table.at(j).out);
+                    close(pipe_table.at(j).in);
+                }
+                pipe_table.erase(pipe_table.begin() + j);
+            }else{
+                j++;
+            }
+        }
+    }
+
+    for(int i = 0; i < pipe_table.size(); i++){
+        pipe_table.at(i).behind_cmd_idx = -1;
+    }
+
+    if(!pipe_in_end){
+        vector<pid_t>::iterator iter = pid_list.begin();
+        while(iter != pid_list.end()){
+            int status;
+            waitpid((*iter), &status, 0);
+            iter = pid_list.erase(iter);
         }
     }
 
