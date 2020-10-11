@@ -29,17 +29,21 @@ void doFork(vector<vector<string>> cmds, vector<pipeinfo> &pipe_table, bool &pip
         for(int j = 0; j < pipe_table.size(); j++){
             if(pipe_table.at(j).behind_cmd_idx == i){
                 // If pipe_j is behind cmds_i
+                bool same_pipe = false;
+
                 if(pipe_table.at(j).pipe_type >= 3){
                     // If pipe_j is a number pipe
                     for(int k = 0; k < j; k++){
                         if(pipe_table.at(j).line_cnt == pipe_table.at(k).line_cnt){
                             // If there's a same number pipe existing in pipe_table
+                            same_pipe = true;
                             pipe_table.at(j).in = pipe_table.at(k).in;
                             pipe_table.at(j).out = pipe_table.at(k).out;
                             break;
                         }
                     }
-                }else{
+                }
+                if(!same_pipe){
                     // If pipe_j is not a number pipe
                     int pipe_tmp[2];
 
@@ -81,9 +85,9 @@ void doFork(vector<vector<string>> cmds, vector<pipeinfo> &pipe_table, bool &pip
                 if(pipe_table.at(j).behind_cmd_idx == i){
                     if(pipe_table.at(j).pipe_type == 0){
                         // Intput redirection
-                        int in_file_fd = open((cmds.at(i+1).at(0)).c_str(), O_RDWR | O_CREAT | O_TRUNC, S_IRWXU | S_IRWXG | S_IRWXO);
+                        int in_file_fd = open((cmds.at(i+1).at(0)).c_str(), O_RDONLY, 0);
 
-                        dup2(in_file_fd, 1);
+                        dup2(in_file_fd, 0);
                     }else if(pipe_table.at(j).pipe_type == 1){
                         // Output redirection
                         int out_file_fd = open((cmds.at(i+1).at(0)).c_str(), O_RDWR | O_CREAT | O_TRUNC, S_IRWXU | S_IRWXG | S_IRWXO);
@@ -98,12 +102,15 @@ void doFork(vector<vector<string>> cmds, vector<pipeinfo> &pipe_table, bool &pip
                     }else if(pipe_table.at(j).pipe_type == 4){
                         // Number pipe with stderr
                         dup2(pipe_table.at(j).in, 1);
+                        dup2(pipe_table.at(j).in, 2);
                     }
                 }
 
                 if(i != 0 && pipe_table.at(j).behind_cmd_idx == i-1 && (pipe_table.at(j).pipe_type == 0 || pipe_table.at(j).pipe_type == 1)){
                     is_file = true;
                 }else if(i != 0 && pipe_table.at(j).behind_cmd_idx == i-1 && pipe_table.at(j).pipe_type == 2){
+                    dup2(pipe_table.at(j).out, 0);
+                }else if(i == 0 && pipe_table.at(j).line_cnt == 0 && (pipe_table.at(j).pipe_type == 3 || pipe_table.at(j).pipe_type == 4)){
                     dup2(pipe_table.at(j).out, 0);
                 }
             }
@@ -128,8 +135,8 @@ void doFork(vector<vector<string>> cmds, vector<pipeinfo> &pipe_table, bool &pip
         }
 
         for(int j = 0; j < pipe_table.size(); ){
-            if(i != 0 && pipe_table.at(j).behind_cmd_idx == i-1){
-                if(pipe_table.at(j).pipe_type == 2){
+            if((i != 0 && pipe_table.at(j).behind_cmd_idx == i-1) || (i == 0 && pipe_table.at(j).line_cnt == 0)){
+                if(pipe_table.at(j).pipe_type != 0 && pipe_table.at(j).pipe_type != 1){
                     close(pipe_table.at(j).out);
                     close(pipe_table.at(j).in);
                 }
@@ -142,6 +149,9 @@ void doFork(vector<vector<string>> cmds, vector<pipeinfo> &pipe_table, bool &pip
 
     for(int i = 0; i < pipe_table.size(); i++){
         pipe_table.at(i).behind_cmd_idx = -1;
+        if(pipe_table.at(i).line_cnt != -1){
+            pipe_table.at(i).line_cnt--;
+        }
     }
 
     if(!pipe_in_end){
