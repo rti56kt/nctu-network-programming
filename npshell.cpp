@@ -85,49 +85,59 @@ void doFork(vector<vector<string>> cmds, vector<pipeinfo> &pipe_table, bool &pip
                 if(pipe_table.at(j).behind_cmd_idx == i){
                     if(pipe_table.at(j).pipe_type == 0){
                         // Intput redirection
-                        int in_file_fd = open((cmds.at(i+1).at(0)).c_str(), O_RDONLY, 0);
+                        int in_file_fd;
 
+                        // Open the file which is behind current cmd and change current cmd's stdin fd to file's fd
+                        in_file_fd = open((cmds.at(i+1).at(0)).c_str(), O_RDONLY, 0);
                         dup2(in_file_fd, 0);
                     }else if(pipe_table.at(j).pipe_type == 1){
                         // Output redirection
-                        int out_file_fd = open((cmds.at(i+1).at(0)).c_str(), O_RDWR | O_CREAT | O_TRUNC, S_IRWXU | S_IRWXG | S_IRWXO);
+                        int out_file_fd;
 
+                        // Open the file which is behind current cmd and change current cmd's stdout fd to file's fd
+                        out_file_fd = open((cmds.at(i+1).at(0)).c_str(), O_RDWR | O_CREAT | O_TRUNC, S_IRWXU | S_IRWXG | S_IRWXO);
                         dup2(out_file_fd, 1);
                     }else if(pipe_table.at(j).pipe_type == 2){
                         // Normal pipe
-                        dup2(pipe_table.at(j).in, 1);
+                        dup2(pipe_table.at(j).in, 1);  // Change current cmd's stdout fd to pipe's input fd
                     }else if(pipe_table.at(j).pipe_type == 3){
                         // Number pipe
-                        dup2(pipe_table.at(j).in, 1);
+                        dup2(pipe_table.at(j).in, 1);  // Change current cmd's stdout fd to pipe's input fd
                     }else if(pipe_table.at(j).pipe_type == 4){
                         // Number pipe with stderr
-                        dup2(pipe_table.at(j).in, 1);
-                        dup2(pipe_table.at(j).in, 2);
+                        dup2(pipe_table.at(j).in, 1);  // Change current cmd's stdout fd to pipe's input fd
+                        dup2(pipe_table.at(j).in, 2);  // Change current cmd's stderr fd to pipe's input fd
                     }
                 }
 
                 if(i != 0 && pipe_table.at(j).behind_cmd_idx == i-1 && (pipe_table.at(j).pipe_type == 0 || pipe_table.at(j).pipe_type == 1)){
+                    // If current cmd is NOT a command but a file name then do nothing
                     is_file = true;
                 }else if(i != 0 && pipe_table.at(j).behind_cmd_idx == i-1 && pipe_table.at(j).pipe_type == 2){
+                    // If current cmd is normal pipe's output then change its stdin fd to pipe's output fd
                     dup2(pipe_table.at(j).out, 0);
                 }else if(i == 0 && pipe_table.at(j).line_cnt == 0 && (pipe_table.at(j).pipe_type == 3 || pipe_table.at(j).pipe_type == 4)){
+                    // If current cmd is number pipe's output then change its stdin fd to pipe's output fd
                     dup2(pipe_table.at(j).out, 0);
                 }
             }
 
             for(int j = 0; j < pipe_table.size(); j++){
                 if(pipe_table.at(j).pipe_type != 0 && pipe_table.at(j).pipe_type != 1){
+                    // Child now can close all useless fd since all necessary pipe fd has already connected to corresponding cmd's stdin/stdout/stderr
                     close(pipe_table.at(j).out);
                     close(pipe_table.at(j).in);
                 }
             }
 
             if(!is_file){
+                // If current cmd is not a filename but a command then execute the command
                 execvp(cmds.at(i).at(0).c_str(), cmd_arg);
-
+                // If exec is failed means the system cannnot find the command
                 cerr << "Unknown command: [" << cmds.at(i).at(0).c_str() << "]." << endl;
                 exit(EXIT_FAILURE);
             }else{
+                // If current cmd is a filename then no need to execute, just close current child process
                 exit(EXIT_SUCCESS);
             }
         }else{
@@ -136,7 +146,10 @@ void doFork(vector<vector<string>> cmds, vector<pipeinfo> &pipe_table, bool &pip
 
         for(int j = 0; j < pipe_table.size(); ){
             if((i != 0 && pipe_table.at(j).behind_cmd_idx == i-1) || (i == 0 && pipe_table.at(j).line_cnt == 0)){
+                // If current cmd is pipe's output, the pipe's input and output should be all connected by child process
+                // Thus parent can close these pipe's fd
                 if(pipe_table.at(j).pipe_type != 0 && pipe_table.at(j).pipe_type != 1){
+                    // Parent now can close all useless fd since all necessary pipe fd has already connected to corresponding cmd's stdin/stdout/stderr
                     close(pipe_table.at(j).out);
                     close(pipe_table.at(j).in);
                 }
@@ -147,6 +160,7 @@ void doFork(vector<vector<string>> cmds, vector<pipeinfo> &pipe_table, bool &pip
         }
     }
 
+    // All number pipe's line_cnt should minus one since the process of this user's input line is finished
     for(int i = 0; i < pipe_table.size(); i++){
         pipe_table.at(i).behind_cmd_idx = -1;
         if(pipe_table.at(i).line_cnt != -1){
@@ -154,6 +168,7 @@ void doFork(vector<vector<string>> cmds, vector<pipeinfo> &pipe_table, bool &pip
         }
     }
 
+    // Prevent prompt ("% ") is printed before child process prints its output
     if(!pipe_in_end){
         vector<pid_t>::iterator iter = pid_list.begin();
         while(iter != pid_list.end()){
@@ -212,8 +227,8 @@ vector<vector<string>> parseCmd(string user_input, vector<pipeinfo> &pipe_table,
     }
 
     // Divide tokens into cmd + args, pipe, number pipe, and io redirection
-    for(vector<string>::iterator iter = tokens.begin(); iter != tokens.end(); iter++){
-        if(*iter == "<"){
+    for(int i = 0; i < tokens.size(); i++){
+        if(tokens.at(i) == "<"){
             // Input redirection
             struct pipeinfo pipe_info_tmp;
 
@@ -229,7 +244,7 @@ vector<vector<string>> parseCmd(string user_input, vector<pipeinfo> &pipe_table,
             pipe_info_tmp.behind_cmd_idx = pipe_cnt;
             pipe_table.push_back(pipe_info_tmp);
             pipe_cnt++;
-        }else if(*iter == ">"){
+        }else if(tokens.at(i) == ">"){
             // Output redirection
             struct pipeinfo pipe_info_tmp;
 
@@ -245,7 +260,7 @@ vector<vector<string>> parseCmd(string user_input, vector<pipeinfo> &pipe_table,
             pipe_info_tmp.behind_cmd_idx = pipe_cnt;
             pipe_table.push_back(pipe_info_tmp);
             pipe_cnt++;
-        }else if(*iter == "|"){
+        }else if(tokens.at(i) == "|"){
             // Normal pipe
             struct pipeinfo pipe_info_tmp;
 
@@ -261,7 +276,7 @@ vector<vector<string>> parseCmd(string user_input, vector<pipeinfo> &pipe_table,
             pipe_info_tmp.behind_cmd_idx = pipe_cnt;
             pipe_table.push_back(pipe_info_tmp);
             pipe_cnt++;
-        }else if((*iter).at(0) == '|' && isdigit((*iter).at(1)) || (*iter).at(0) == '!' && isdigit((*iter).at(1))){
+        }else if(tokens.at(i).at(0) == '|' && isdigit(tokens.at(i).at(1)) || tokens.at(i).at(0) == '!' && isdigit(tokens.at(i).at(1))){
             // Number pipe
             int pipe_number = 0;
             struct pipeinfo pipe_info_tmp;
@@ -271,20 +286,20 @@ vector<vector<string>> parseCmd(string user_input, vector<pipeinfo> &pipe_table,
             pipe_in_end = true;
 
             // Parse the number behind the pipe
-            pipe_number = atoi((*iter).substr(1, (*iter).size()).c_str());
+            pipe_number = atoi(tokens.at(i).substr(1, tokens.at(i).size()).c_str());
 
             // Initalize pipe_info_tmp that is going to push to pipe_table
             pipe_info_tmp.in = -1;
             pipe_info_tmp.out = -1;
-            if((*iter).at(0) == '|') pipe_info_tmp.pipe_type = 3;
-            else if((*iter).at(0) == '!') pipe_info_tmp.pipe_type = 4;
+            if(tokens.at(i).at(0) == '|') pipe_info_tmp.pipe_type = 3;
+            else if(tokens.at(i).at(0) == '!') pipe_info_tmp.pipe_type = 4;
             pipe_info_tmp.line_cnt = pipe_number;
             pipe_info_tmp.behind_cmd_idx = pipe_cnt;
             pipe_table.push_back(pipe_info_tmp);
             pipe_cnt++;
         }else{
             // Cmd + args
-            cmd.push_back(*iter);
+            cmd.push_back(tokens.at(i));
             pipe_in_end = false;
         }
     }
