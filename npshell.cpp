@@ -1,3 +1,4 @@
+#include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <stdlib.h>
@@ -131,10 +132,13 @@ void doFork(vector<vector<string>> cmds, vector<pipeinfo> &pipe_table, bool &pip
             }
 
             if(!is_file){
+                int ret = 0;
                 // If current cmd is not a filename but a command then execute the command
-                execvp(cmds.at(i).at(0).c_str(), cmd_arg);
-                // If exec is failed means the system cannnot find the command
-                cerr << "Unknown command: [" << cmds.at(i).at(0).c_str() << "]." << endl;
+                ret = execvp(cmds.at(i).at(0).c_str(), cmd_arg);
+                if(ret == -1 && errno == 2){
+                    // If exec is failed and errno equals 2 (No such file or directory) means the system cannnot find the command
+                    cerr << "Unknown command: [" << cmds.at(i).at(0).c_str() << "]." << endl;
+                }
                 exit(EXIT_FAILURE);
             }else{
                 // If current cmd is a filename then no need to execute, just close current child process
