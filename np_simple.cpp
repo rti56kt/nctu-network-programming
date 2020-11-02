@@ -203,8 +203,6 @@ void buildInCmd(vector<string> cmd){
             setenv(env_name, env_val, 1);
         }else{
             cerr << "usage: setenv [variable name] [value to assign]" << "\n";
-            // string errmsg = "usage: setenv [variable name] [value to assign]";
-            // send(ssock, errmsg.c_str(), errmsg.length(), 0);
         }
     }else if(cmd.at(0).compare("printenv") == 0){
         if(cmd.size() == 2){
@@ -215,8 +213,6 @@ void buildInCmd(vector<string> cmd){
             if(getenv(env_name) != NULL) cout << getenv(env_name) << "\n";
         }else{
             cerr << "usage: printenv [variable name]" << "\n";
-            // string errmsg = "usage: printenv [variable name]";
-            // send(ssock, errmsg.c_str(), errmsg.length(), 0);
         }
     }
 
@@ -329,8 +325,6 @@ string readInput(){
 
     getline(cin, user_input, '\n');
     if(cin.eof()) exit(EXIT_SUCCESS);
-    // recv(ssock, recv_buf, sizeof(recv_buf), 0);
-    // user_input = strtok(recv_buf, "\n");
 
     return user_input;
 }
@@ -344,11 +338,11 @@ void npsh(){
 
         // Print prompt
         cout << "% " << flush;
-        // string prompt = "% ";
-        // send(ssock, prompt.c_str(), prompt.length(), 0);
 
         user_input = readInput();
-        user_input.pop_back();
+        if(user_input.back() == '\r'){
+            user_input.pop_back();
+        }
 
         if(user_input.size() >= 1) cmds = parseCmd(user_input, pipe_table, pipe_in_end);
         else continue;  // Means the input is a blank line
@@ -404,6 +398,7 @@ void initServer(int port){
             dup2(ssock, 0);
             dup2(ssock, 1);
             dup2(ssock, 2);
+            close(ssock);
             npsh();
         }else if(pid > 0){
             close(ssock);
@@ -439,8 +434,6 @@ int main(int argc, char **argv, char **envp){
     setenv("PATH", "bin:.", 1);
 
     initServer(port);
-
-    // npsh();
 
     return 0;
 }
