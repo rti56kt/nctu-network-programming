@@ -414,7 +414,7 @@ void childHandler(int signo){
     }
 }
 
-int main(int argc, char **argv, char **envp){
+int main(int argc, char **argv){
     // Check if user provide port number
     if(argc != 2){
         cerr << "usage: np_simple [port]" << endl;
@@ -424,12 +424,8 @@ int main(int argc, char **argv, char **envp){
 
     // Create a signal handler
     signal(SIGCHLD, childHandler);
-    // Fetch all env var and unset them
-    for(char **env = envp; *env != 0; env++){
-        char *envname;
-        envname = strtok(*env, "=");
-        unsetenv(envname);
-    }
+    // Clear all env
+    clearenv();
     // Only set PATH as env var, and init it to "bin:."
     setenv("PATH", "bin:.", 1);
 

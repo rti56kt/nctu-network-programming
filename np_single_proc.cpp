@@ -242,11 +242,48 @@ int buildInCmd(int ssock, map<int, userinfo> &user_info_list, vector<string> cmd
         }
         else cerr << "usage: who" << endl;
     }else if(cmd.at(0).compare("tell") == 0){
-        
+        if(cmd.size() >= 3){
+            for(map<int, userinfo>::iterator it = user_info_list.begin(); it != user_info_list.end(); it++){
+                if((it->second).uid == atoi(cmd.at(1).c_str())){
+                    string msg = "*** " + user_info_list[ssock].name + " told you ***: ";
+                    for(int i = 2; i < cmd.size(); i++){
+                        msg += cmd.at(i);
+                        msg += " ";
+                    }
+                    msg.pop_back();
+                    sockDupToStdIOE(it->first);
+                    cout << msg << endl;
+                    sockDupToStdIOE(ssock);
+                    return 0;
+                }
+            }
+            cout << "*** Error: user #" + cmd.at(1) + " does not exist yet. ***" << endl;
+        }
+        else cerr << "usage: tell [user id] [message]" << endl;
     }else if(cmd.at(0).compare("yell") == 0){
-
+        if(cmd.size() >= 2){
+            string msg = "*** " + user_info_list[ssock].name + " yelled ***: ";
+            for(int i = 1; i < cmd.size(); i++){
+                msg += cmd.at(i);
+                msg += " ";
+            }
+            msg.pop_back();
+            broadcast(ssock, user_info_list, msg);
+        }
+        else cerr << "usage: yell [message]" << endl;
     }else if(cmd.at(0).compare("name") == 0){
-
+        if(cmd.size() == 2){
+            for(map<int, userinfo>::iterator it = user_info_list.begin(); it != user_info_list.end(); it++){
+                if((it->second).name.compare(cmd.at(1)) == 0){
+                    cout << "*** User '" + cmd.at(1) + "' already exists. ***" << endl;
+                    return 0;
+                }
+            }
+            string msg = " *** User from " + user_info_list[ssock].conn_info + " is named '" + cmd.at(1) + "'. ***";
+            user_info_list[ssock].name = cmd.at(1);
+            broadcast(ssock, user_info_list, msg);
+        }
+        else cerr << "usage: name [newname]" << endl;
     }
 
     return 0;
@@ -539,7 +576,7 @@ int main(int argc, char **argv){
 
     // Create a signal handler
     signal(SIGCHLD, childHandler);
-    // Fetch all env var and unset them
+    // Clear all env
     clearenv();
     // Only set PATH as env var, and init it to "bin:."
     setenv("PATH", "bin:.", 1);
