@@ -124,11 +124,9 @@ void doFork(vector<vector<string>> cmds, vector<pipeinfo> &pipe_table, bool &pip
             }
 
             for(int j = 0; j < pipe_table.size(); j++){
-                if(pipe_table.at(j).pipe_type != 0 && pipe_table.at(j).pipe_type != 1){
-                    // Child now can close all useless fd since all necessary pipe fd has already connected to corresponding cmd's stdin/stdout/stderr
-                    close(pipe_table.at(j).out);
-                    close(pipe_table.at(j).in);
-                }
+                // Child now can close all useless fd since all necessary pipe fd has already connected to corresponding cmd's stdin/stdout/stderr
+                close(pipe_table.at(j).out);
+                close(pipe_table.at(j).in);
             }
 
             if(!is_file){
@@ -152,11 +150,9 @@ void doFork(vector<vector<string>> cmds, vector<pipeinfo> &pipe_table, bool &pip
             if((i != 0 && pipe_table.at(j).behind_cmd_idx == i-1) || (i == 0 && pipe_table.at(j).line_cnt == 0)){
                 // If current cmd is pipe's output, the pipe's input and output should be all connected by child process
                 // Thus parent can close these pipe's fd
-                if(pipe_table.at(j).pipe_type != 0 && pipe_table.at(j).pipe_type != 1){
-                    // Parent now can close all useless fd since all necessary pipe fd has already connected to corresponding cmd's stdin/stdout/stderr
-                    close(pipe_table.at(j).out);
-                    close(pipe_table.at(j).in);
-                }
+                // Parent now can close all useless fd since all necessary pipe fd has already connected to corresponding cmd's stdin/stdout/stderr
+                close(pipe_table.at(j).out);
+                close(pipe_table.at(j).in);
                 pipe_table.erase(pipe_table.begin() + j);
             }else{
                 j++;
