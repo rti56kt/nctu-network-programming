@@ -454,6 +454,16 @@ vector<vector<string>> parseCmd(string user_input, vector<pipeinfo> &pipe_table,
         tokens.push_back(token);
     }
 
+    // Check for build in cmds
+    if(tokens.at(0).compare("exit") == 0 || tokens.at(0).compare("setenv") == 0 || tokens.at(0).compare("printenv") == 0 || tokens.at(0).compare("who") == 0 || tokens.at(0).compare("tell") == 0 || tokens.at(0).compare("yell") == 0 || tokens.at(0).compare("name") == 0){
+        for(int i = 0; i < tokens.size(); i++){
+            cmd.push_back(tokens.at(i));
+        }
+        cmds.push_back(cmd);
+
+        return cmds;
+    }
+
     // Divide tokens into cmd + args, pipe, number pipe, and io redirection
     for(int i = 0; i < tokens.size(); i++){
         if(tokens.at(i) == "<"){
