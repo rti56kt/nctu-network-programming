@@ -643,9 +643,9 @@ void initUserEnv(int ssock, map<int, userinfo> &user_info_list){
 }
 
 void printWellcome(int ssock){
-    cout << "***************************************" << endl;
-    cout << "** Welcome to the information server **" << endl;
-    cout << "***************************************" << endl;
+    cout << "****************************************" << endl;
+    cout << "** Welcome to the information server. **" << endl;
+    cout << "****************************************" << endl;
 
     return;
 }
