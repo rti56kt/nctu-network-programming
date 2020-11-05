@@ -642,7 +642,7 @@ void initUserEnv(int ssock, map<int, userinfo> &user_info_list){
     return;
 }
 
-void printWellcome(int ssock){
+void printWelcome(int ssock){
     cout << "****************************************" << endl;
     cout << "** Welcome to the information server. **" << endl;
     cout << "****************************************" << endl;
@@ -739,7 +739,7 @@ void initServer(int port){
 
             insertNewUser(ssock, user_info_list, slave);
             dupToStdIOE(ssock, ssock, ssock);
-            printWellcome(ssock);
+            printWelcome(ssock);
             login_msg = "*** User '" + user_info_list[ssock].name + "' entered from " + user_info_list[ssock].conn_info + ". ***";
             broadcast(recover_ioe_fd, user_info_list, login_msg);
             // Print prompt
