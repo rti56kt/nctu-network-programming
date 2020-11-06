@@ -32,6 +32,11 @@ struct userpipe{
     int pipe_out;
 };
 
+struct uidsock{
+    int uid;
+    int sock;
+};
+
 struct userinfo{
     int uid;
     string name;
@@ -59,7 +64,6 @@ void broadcast(int recover_ioe_fd[3], map<int, userinfo> &user_info_list, string
 }
 
 void doFork(vector<vector<string>> cmds, vector<pipeinfo> &pipe_table, bool &pipe_in_end, int ssock, map<int, userinfo> &user_info_list, vector<userpipe> &user_pipe_table, string user_input){
-    bool user_send_pipe = false, user_recv_pipe = false;
     pid_t pid;
     vector<pid_t> pid_list;
 
@@ -102,11 +106,24 @@ void doFork(vector<vector<string>> cmds, vector<pipeinfo> &pipe_table, bool &pip
                     if(!err){
                         for(int k = 0; k < user_pipe_table.size(); k++){
                             if(user_info_list[ssock].uid == user_pipe_table.at(k).dst[1] && pipe_table.at(j).uid == user_pipe_table.at(k).src[1]){
-                                user_pipe_table.at(k).dst[0] = ssock;
+                                int recover_ioe_fd[3];
+                                string msg, src_name, src_uid, dst_name, dst_uid;
                                 pipe_table.at(j).in = user_pipe_table.at(k).pipe_in;
                                 pipe_table.at(j).out = user_pipe_table.at(k).pipe_out;
-                                user_recv_pipe = true;
                                 find_pipe = true;
+
+                                src_name = user_info_list[user_pipe_table.at(k).src[0]].name;
+                                src_uid = to_string(user_pipe_table.at(k).src[1]);
+                                dst_name = user_info_list[user_pipe_table.at(k).dst[0]].name;
+                                dst_uid = to_string(user_pipe_table.at(k).dst[1]);
+                                msg = "*** " + dst_name + " (#" + dst_uid + ") just received from " + src_name + " (#" + src_uid + ") by '" + user_input + "' ***";
+                                recover_ioe_fd[0] = dup(0);
+                                recover_ioe_fd[1] = dup(1);
+                                recover_ioe_fd[2] = dup(2);
+                                broadcast(recover_ioe_fd, user_info_list, msg);
+                                close(recover_ioe_fd[0]);
+                                close(recover_ioe_fd[1]);
+                                close(recover_ioe_fd[2]);
                                 break;
                             }
                         }
@@ -130,9 +147,11 @@ void doFork(vector<vector<string>> cmds, vector<pipeinfo> &pipe_table, bool &pip
                     pipe_table.at(j).in = pipe_tmp[1];
                     pipe_table.at(j).out = pipe_tmp[0];
                     if(pipe_table.at(j).pipe_type == 5){
+                        int dst_sock = 0;
                         bool find_user = false;
                         for(map<int, userinfo>::iterator it = user_info_list.begin(); it != user_info_list.end(); it++){
                             if((it->second).uid == pipe_table.at(j).uid){
+                                dst_sock = (it->first);
                                 find_user = true;
                                 break;
                             }
@@ -152,14 +171,29 @@ void doFork(vector<vector<string>> cmds, vector<pipeinfo> &pipe_table, bool &pip
                             }
                         }
                         if(!err){
+                            int recover_ioe_fd[3];
+                            string msg, src_name, src_uid, dst_name, dst_uid;
                             struct userpipe user_pipe_tmp;
                             user_pipe_tmp.src[0] = ssock;
                             user_pipe_tmp.src[1] = user_info_list[ssock].uid;
+                            user_pipe_tmp.dst[0] = dst_sock;
                             user_pipe_tmp.dst[1] = pipe_table.at(j).uid;
                             user_pipe_tmp.pipe_in = pipe_tmp[1];
                             user_pipe_tmp.pipe_out = pipe_tmp[0];
                             user_pipe_table.push_back(user_pipe_tmp);
-                            user_send_pipe = true;
+
+                            src_name = user_info_list[user_pipe_tmp.src[0]].name;
+                            src_uid = to_string(user_pipe_tmp.src[1]);
+                            dst_name = user_info_list[user_pipe_tmp.dst[0]].name;
+                            dst_uid = to_string(user_pipe_tmp.dst[1]);
+                            recover_ioe_fd[0] = dup(0);
+                            recover_ioe_fd[1] = dup(1);
+                            recover_ioe_fd[2] = dup(2);
+                            msg = "*** " + src_name + " (#" + src_uid + ") just piped '" + user_input + "' to " + dst_name + " (#" + dst_uid + ") ***";
+                            broadcast(recover_ioe_fd, user_info_list, msg);
+                            close(recover_ioe_fd[0]);
+                            close(recover_ioe_fd[1]);
+                            close(recover_ioe_fd[2]);
                         }
                     }
                 }
@@ -218,27 +252,7 @@ void doFork(vector<vector<string>> cmds, vector<pipeinfo> &pipe_table, bool &pip
                             int fd = open("/dev/null", O_RDWR, 0);
                             dup2(fd, 1);
                         }else{
-                            int recover_ioe_fd[3]; 
-                            string msg, src_name, src_uid, dst_name, dst_uid;
-                            src_name = user_info_list[ssock].name;
-                            src_uid = to_string(user_info_list[ssock].uid);
-                            for(map<int, userinfo>::iterator it = user_info_list.begin(); it != user_info_list.end(); it++){
-                                if((it->second).uid == pipe_table.at(j).uid){
-                                    dst_name = (it->second).name;
-                                    dst_uid = to_string((it->second).uid);
-                                }
-                            }
-
                             dup2(pipe_table.at(j).in, 1);
-
-                            recover_ioe_fd[0] = dup(0);
-                            recover_ioe_fd[1] = dup(1);
-                            recover_ioe_fd[2] = dup(2);
-                            msg = "*** " + src_name + " (#" + src_uid + ") just piped '" + user_input + "' to " + dst_name + " (#" + dst_uid + ") ***";
-                            broadcast(recover_ioe_fd, user_info_list, msg);
-                            close(recover_ioe_fd[0]);
-                            close(recover_ioe_fd[1]);
-                            close(recover_ioe_fd[2]);
                         }
                     }else if(pipe_table.at(j).pipe_type == 6){
                         // User recv pipe
@@ -246,27 +260,7 @@ void doFork(vector<vector<string>> cmds, vector<pipeinfo> &pipe_table, bool &pip
                             int fd = open("/dev/null", O_RDONLY, 0);
                             dup2(fd, 0);
                         }else{
-                            int recover_ioe_fd[3]; 
-                            string msg, src_name, src_uid, dst_name, dst_uid;
-                            for(map<int, userinfo>::iterator it = user_info_list.begin(); it != user_info_list.end(); it++){
-                                if((it->second).uid == pipe_table.at(j).uid){
-                                    src_name = (it->second).name;
-                                    src_uid = to_string((it->second).uid);
-                                }
-                            }
-                            dst_name = user_info_list[ssock].name;
-                            dst_uid = to_string(user_info_list[ssock].uid);
-
                             dup2(pipe_table.at(j).out, 0);
-
-                            recover_ioe_fd[0] = dup(0);
-                            recover_ioe_fd[1] = dup(1);
-                            recover_ioe_fd[2] = dup(2);
-                            msg = "*** " + dst_name + " (#" + dst_uid + ") just received from " + src_name + " (#" + src_uid + ") by '" + user_input + "' ***";
-                            broadcast(recover_ioe_fd, user_info_list, msg);
-                            close(recover_ioe_fd[0]);
-                            close(recover_ioe_fd[1]);
-                            close(recover_ioe_fd[2]);
                         }
                     }
                 }
@@ -369,7 +363,7 @@ void doFork(vector<vector<string>> cmds, vector<pipeinfo> &pipe_table, bool &pip
     return;
 }
 
-int buildInCmd(int ssock, map<int, userinfo> &user_info_list, vector<string> cmd){
+int buildInCmd(int ssock, vector<uidsock> &uid_sock_list, map<int, userinfo> &user_info_list, vector<string> cmd){
     if(cmd.at(0).compare("exit") == 0){
         return 1;
     }else if(cmd.at(0).compare("setenv") == 0){
@@ -383,10 +377,19 @@ int buildInCmd(int ssock, map<int, userinfo> &user_info_list, vector<string> cmd
     }else if(cmd.at(0).compare("who") == 0){
         if(cmd.size() == 1){
             cout << "<ID>\t<nickname>\t<IP:port>\t<indicate me>" << endl;
-            for(map<int, userinfo>::iterator it = user_info_list.begin(); it != user_info_list.end(); it++){
-                if(it->first == ssock) cout << (it->second).uid << "\t" << (it->second).name << "\t" << (it->second).conn_info << "\t<-me" << endl;
-                else cout << (it->second).uid << "\t" << (it->second).name << "\t" << (it->second).conn_info << endl;
+
+            for(int i = 0; i < uid_sock_list.size(); i++){
+                if(uid_sock_list.at(i).sock == ssock)
+                    cout << uid_sock_list.at(i).uid << "\t" << user_info_list[uid_sock_list.at(i).sock].name << "\t" << user_info_list[uid_sock_list.at(i).sock].conn_info << "\t<-me" << endl;
+                else
+                    cout << uid_sock_list.at(i).uid << "\t" << user_info_list[uid_sock_list.at(i).sock].name << "\t" << user_info_list[uid_sock_list.at(i).sock].conn_info << endl;
             }
+
+
+            // for(map<int, userinfo>::iterator it = user_info_list.begin(); it != user_info_list.end(); it++){
+            //     if(it->first == ssock) cout << (it->second).uid << "\t" << (it->second).name << "\t" << (it->second).conn_info << "\t<-me" << endl;
+            //     else cout << (it->second).uid << "\t" << (it->second).name << "\t" << (it->second).conn_info << endl;
+            // }
         }
         else cerr << "usage: who" << endl;
     }else if(cmd.at(0).compare("tell") == 0){
@@ -429,7 +432,7 @@ int buildInCmd(int ssock, map<int, userinfo> &user_info_list, vector<string> cmd
                     return 0;
                 }
             }
-            string msg = " *** User from " + user_info_list[ssock].conn_info + " is named '" + cmd.at(1) + "'. ***";
+            string msg = "*** User from " + user_info_list[ssock].conn_info + " is named '" + cmd.at(1) + "'. ***";
             user_info_list[ssock].name = cmd.at(1);
             broadcast(recover_ioe_fd, user_info_list, msg);
         }
@@ -441,6 +444,7 @@ int buildInCmd(int ssock, map<int, userinfo> &user_info_list, vector<string> cmd
 
 vector<vector<string>> parseCmd(string user_input, vector<pipeinfo> &pipe_table, bool &pipe_in_end){
     int pipe_cnt = 0;
+    bool input_has_user_send_pipe = false;
     string token;
     vector<string> tokens;
     vector<string> cmd;
@@ -553,13 +557,16 @@ vector<vector<string>> parseCmd(string user_input, vector<pipeinfo> &pipe_table,
             // Initalize pipe_info_tmp that is going to push to pipe_table
             pipe_info_tmp.in = -1;
             pipe_info_tmp.out = -1;
-            if(tokens.at(i).at(0) == '>') pipe_info_tmp.pipe_type = 5;
+            if(tokens.at(i).at(0) == '>'){
+                pipe_info_tmp.pipe_type = 5;
+                input_has_user_send_pipe = true;
+            }
             else if(tokens.at(i).at(0) == '<') pipe_info_tmp.pipe_type = 6;
 
             pipe_info_tmp.line_cnt = -1;
             pipe_info_tmp.uid = uid;
             pipe_info_tmp.behind_cmd_idx = pipe_cnt;
-            if(pipe_table.size() != 0 && pipe_info_tmp.pipe_type == 6 && pipe_table.back().pipe_type == 5){
+            if(input_has_user_send_pipe && pipe_info_tmp.pipe_type == 6 && pipe_table.back().pipe_type == 5){
                 vector<pipeinfo>::iterator it = pipe_table.end();
                 pipe_table.insert(--it, pipe_info_tmp);
             }
@@ -590,7 +597,7 @@ string readInput(int ssock){
     return user_input;
 }
 
-int npsh(int ssock, map<int, userinfo> &user_info_list, vector<userpipe> &user_pipe_table){
+int npsh(int recover_fd[3], int ssock, vector<uidsock> &uid_sock_list, map<int, userinfo> &user_info_list, vector<userpipe> &user_pipe_table){
     bool pipe_in_end;
     string user_input;
     vector<vector<string>> cmds;  // Outer vector: different cmds; Inner vector: single cmd + args
@@ -600,15 +607,30 @@ int npsh(int ssock, map<int, userinfo> &user_info_list, vector<userpipe> &user_p
         user_input.pop_back();
     }
 
+    dup2(recover_fd[1], 1);
+    cout << user_input << endl;
+    dup2(ssock, 1);
+
     if(user_input.size() >= 1) cmds = parseCmd(user_input, user_info_list[ssock].pipe_table, pipe_in_end);
     else return 0;  // Means the input is a blank line
 
     if(cmds.at(0).at(0).compare("exit") == 0 || cmds.at(0).at(0).compare("setenv") == 0 || cmds.at(0).at(0).compare("printenv") == 0 || cmds.at(0).at(0).compare("who") == 0 || cmds.at(0).at(0).compare("tell") == 0 || cmds.at(0).at(0).compare("yell") == 0 || cmds.at(0).at(0).compare("name") == 0){
-        if(buildInCmd(ssock, user_info_list, cmds.at(0)) != 0) return 1;
+        if(buildInCmd(ssock, uid_sock_list, user_info_list, cmds.at(0)) != 0) return 1;
     }
     else doFork(cmds, user_info_list[ssock].pipe_table, pipe_in_end, ssock, user_info_list, user_pipe_table, user_input);
 
     return 0;
+}
+
+void clearUserInfo(int ssock, vector<uidsock> &uid_sock_list, map<int, userinfo> &user_info_list){
+    for(int i = 0; i < uid_sock_list.size(); i++){
+        if(uid_sock_list.at(i).sock == ssock){
+            uid_sock_list.erase(uid_sock_list.begin()+i);
+            break;
+        }
+    }
+    user_info_list.erase(ssock);
+    return;
 }
 
 void clearPipeTable(int ssock, map<int, userinfo> &user_info_list, vector<userpipe> & user_pipe_table){
@@ -660,37 +682,53 @@ void printWelcome(int ssock){
     return;
 }
 
-void insertNewUser(int ssock, map<int, userinfo> &user_info_list, sockaddr_in slave){
+void insertNewUser(int ssock, vector<uidsock> &uid_sock_list, map<int, userinfo> &user_info_list, sockaddr_in slave){
     char ip[INET_ADDRSTRLEN];
+    uidsock uid_sock_tmp;
     userinfo user_info_tmp;
 
     user_info_tmp.name = "(no name)";
     user_info_tmp.envvar["PATH"] = "bin:.";
     inet_ntop(AF_INET, &(slave.sin_addr), ip, INET_ADDRSTRLEN);
     user_info_tmp.conn_info = ip + (string)":" + to_string(ntohs(slave.sin_port));
-    if(user_info_list.size() == 0){
+    if(uid_sock_list.size() == 0){
         user_info_tmp.uid = 1;
+        uid_sock_tmp.uid = 1;
+        uid_sock_tmp.sock = ssock;
         user_info_list[ssock] = user_info_tmp;
+        uid_sock_list.push_back(uid_sock_tmp);
     }else{
         int uid = 1;
-        for(map<int, userinfo>::iterator it = user_info_list.begin(); it != user_info_list.end(); it++){
-            if((it->second).uid != uid){
+        for(int i = 0; i < uid_sock_list.size(); i++){
+            if(uid_sock_list.at(i).uid != uid){
                 user_info_tmp.uid = uid;
-                user_info_list.insert(it, pair<int, userinfo>(ssock, user_info_tmp));
-
+                uid_sock_tmp.uid = uid;
+                uid_sock_tmp.sock = ssock;
+                user_info_list[ssock] = user_info_tmp;
+                uid_sock_list.insert(uid_sock_list.begin()+i, uid_sock_tmp);
                 return;
             }
+            // if((it->second).uid != uid){
+            //     user_info_tmp.uid = uid;
+            //     user_info_list.insert(it, pair<int, userinfo>(ssock, user_info_tmp));
+
+            //     return;
+            // }
             uid += 1;
         }
         user_info_tmp.uid = uid;
-        user_info_list.insert(user_info_list.end(), pair<int, userinfo>(ssock, user_info_tmp));
+        uid_sock_tmp.uid = uid;
+        uid_sock_tmp.sock = ssock;
+        user_info_list[ssock] = user_info_tmp;
+        uid_sock_list.push_back(uid_sock_tmp);
     }
 
     return;
 }
 
 void initServer(int port){
-    int msock = 0;
+    int msock = 0, recover_fd[3];
+    vector<uidsock> uid_sock_list;
     vector<userpipe> user_pipe_table;
     map<int, userinfo> user_info_list;
 
@@ -720,11 +758,15 @@ void initServer(int port){
 
     int fd_set_num = FD_SETSIZE;
     fd_set readonly_fds, active_fds;
-    timeval timeout = {0, 5000};
+    timeval timeout = {0, 5};
 
     // Init active fd set
     FD_ZERO(&active_fds);
     FD_SET(msock, &active_fds);
+
+    recover_fd[0] = dup(0);
+    recover_fd[1] = dup(1);
+    recover_fd[2] = dup(2);
 
     while(1){
         memcpy(&readonly_fds, &active_fds, sizeof(active_fds));
@@ -735,7 +777,7 @@ void initServer(int port){
         }
 
         if(FD_ISSET(msock, &readonly_fds)){
-            int ssock = 0, ssocklen = 0, recover_ioe_fd[3] = {ssock, ssock, ssock};
+            int ssock = 0, ssocklen = 0;
             string login_msg;
             sockaddr_in slave;
 
@@ -745,9 +787,10 @@ void initServer(int port){
                 cerr << "npsh: cannot accept socket (" << strerror(errno) << ")" << endl;
                 continue;
             }
+            int recover_ioe_fd[3] = {ssock, ssock, ssock};
             FD_SET(ssock, &active_fds);
 
-            insertNewUser(ssock, user_info_list, slave);
+            insertNewUser(ssock, uid_sock_list, user_info_list, slave);
             dupToStdIOE(ssock, ssock, ssock);
             printWelcome(ssock);
             login_msg = "*** User '" + user_info_list[ssock].name + "' entered from " + user_info_list[ssock].conn_info + ". ***";
@@ -760,7 +803,7 @@ void initServer(int port){
                 clearenv();
                 dupToStdIOE(ssock, ssock, ssock);
                 initUserEnv(ssock, user_info_list);
-                if(npsh(ssock, user_info_list, user_pipe_table) == 0) cout << "% " << flush;
+                if(npsh(recover_fd, ssock, uid_sock_list, user_info_list, user_pipe_table) == 0) cout << "% " << flush;
                 else{
                     int recover_ioe_fd[3] = {ssock, ssock, ssock};
                     string logout_msg;
@@ -772,8 +815,9 @@ void initServer(int port){
                     close(ssock);
                     FD_CLR(ssock, &active_fds);
                     clearPipeTable(ssock, user_info_list, user_pipe_table);
-                    user_info_list.erase(ssock);
-                };
+                    clearUserInfo(ssock, uid_sock_list, user_info_list);
+                    // user_info_list.erase(ssock);
+                }
             }
         }
     }
