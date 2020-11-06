@@ -13,6 +13,7 @@
 #include <vector>
 #include <sstream>
 #include <iostream>
+#include <algorithm>
 
 using namespace std;
 
@@ -53,13 +54,23 @@ void dupToStdIOE(int in, int out, int err){
     return;
 }
 
-void broadcast(int recover_ioe_fd[3], map<int, userinfo> &user_info_list, string msg){
+void broadcast(map<int, userinfo> &user_info_list, string msg){
+    int cur_stdioe_fd_backup[3];
+
+    cur_stdioe_fd_backup[0] = dup(0);
+    cur_stdioe_fd_backup[1] = dup(1);
+    cur_stdioe_fd_backup[2] = dup(2);
+
     for(map<int, userinfo>::iterator it = user_info_list.begin(); it != user_info_list.end(); it++){
         dupToStdIOE((it->first), (it->first), (it->first));
-
         cout << msg << endl;
     }
-    dupToStdIOE(recover_ioe_fd[0], recover_ioe_fd[1], recover_ioe_fd[2]);
+    dupToStdIOE(cur_stdioe_fd_backup[0], cur_stdioe_fd_backup[1], cur_stdioe_fd_backup[2]);
+
+    close(cur_stdioe_fd_backup[0]);
+    close(cur_stdioe_fd_backup[1]);
+    close(cur_stdioe_fd_backup[2]);
+
     return;
 }
 
@@ -117,13 +128,7 @@ void doFork(vector<vector<string>> cmds, vector<pipeinfo> &pipe_table, bool &pip
                                 dst_name = user_info_list[user_pipe_table.at(k).dst[0]].name;
                                 dst_uid = to_string(user_pipe_table.at(k).dst[1]);
                                 msg = "*** " + dst_name + " (#" + dst_uid + ") just received from " + src_name + " (#" + src_uid + ") by '" + user_input + "' ***";
-                                recover_ioe_fd[0] = dup(0);
-                                recover_ioe_fd[1] = dup(1);
-                                recover_ioe_fd[2] = dup(2);
-                                broadcast(recover_ioe_fd, user_info_list, msg);
-                                close(recover_ioe_fd[0]);
-                                close(recover_ioe_fd[1]);
-                                close(recover_ioe_fd[2]);
+                                broadcast(user_info_list, msg);
                                 break;
                             }
                         }
@@ -186,14 +191,8 @@ void doFork(vector<vector<string>> cmds, vector<pipeinfo> &pipe_table, bool &pip
                             src_uid = to_string(user_pipe_tmp.src[1]);
                             dst_name = user_info_list[user_pipe_tmp.dst[0]].name;
                             dst_uid = to_string(user_pipe_tmp.dst[1]);
-                            recover_ioe_fd[0] = dup(0);
-                            recover_ioe_fd[1] = dup(1);
-                            recover_ioe_fd[2] = dup(2);
                             msg = "*** " + src_name + " (#" + src_uid + ") just piped '" + user_input + "' to " + dst_name + " (#" + dst_uid + ") ***";
-                            broadcast(recover_ioe_fd, user_info_list, msg);
-                            close(recover_ioe_fd[0]);
-                            close(recover_ioe_fd[1]);
-                            close(recover_ioe_fd[2]);
+                            broadcast(user_info_list, msg);
                         }
                     }
                 }
@@ -363,7 +362,7 @@ void doFork(vector<vector<string>> cmds, vector<pipeinfo> &pipe_table, bool &pip
     return;
 }
 
-int buildInCmd(int ssock, vector<uidsock> &uid_sock_list, map<int, userinfo> &user_info_list, vector<string> cmd){
+int buildInCmd(int ssock, vector<uidsock> &online_uid_sock_list, map<int, userinfo> &user_info_list, vector<string> cmd){
     if(cmd.at(0).compare("exit") == 0){
         return 1;
     }else if(cmd.at(0).compare("setenv") == 0){
@@ -378,18 +377,15 @@ int buildInCmd(int ssock, vector<uidsock> &uid_sock_list, map<int, userinfo> &us
         if(cmd.size() == 1){
             cout << "<ID>\t<nickname>\t<IP:port>\t<indicate me>" << endl;
 
-            for(int i = 0; i < uid_sock_list.size(); i++){
-                if(uid_sock_list.at(i).sock == ssock)
-                    cout << uid_sock_list.at(i).uid << "\t" << user_info_list[uid_sock_list.at(i).sock].name << "\t" << user_info_list[uid_sock_list.at(i).sock].conn_info << "\t<-me" << endl;
+            for(int i = 0; i < online_uid_sock_list.size(); i++){
+                int uid_tmp = online_uid_sock_list.at(i).uid;
+                int sock_tmp = online_uid_sock_list.at(i).sock;
+
+                if(sock_tmp == ssock)
+                    cout << uid_tmp << "\t" << user_info_list[sock_tmp].name << "\t" << user_info_list[sock_tmp].conn_info << "\t<-me" << endl;
                 else
-                    cout << uid_sock_list.at(i).uid << "\t" << user_info_list[uid_sock_list.at(i).sock].name << "\t" << user_info_list[uid_sock_list.at(i).sock].conn_info << endl;
+                    cout << uid_tmp << "\t" << user_info_list[sock_tmp].name << "\t" << user_info_list[sock_tmp].conn_info << endl;
             }
-
-
-            // for(map<int, userinfo>::iterator it = user_info_list.begin(); it != user_info_list.end(); it++){
-            //     if(it->first == ssock) cout << (it->second).uid << "\t" << (it->second).name << "\t" << (it->second).conn_info << "\t<-me" << endl;
-            //     else cout << (it->second).uid << "\t" << (it->second).name << "\t" << (it->second).conn_info << endl;
-            // }
         }
         else cerr << "usage: who" << endl;
     }else if(cmd.at(0).compare("tell") == 0){
@@ -413,19 +409,17 @@ int buildInCmd(int ssock, vector<uidsock> &uid_sock_list, map<int, userinfo> &us
         else cerr << "usage: tell [user id] [message]" << endl;
     }else if(cmd.at(0).compare("yell") == 0){
         if(cmd.size() >= 2){
-            int recover_ioe_fd[3] = {ssock, ssock, ssock};
             string msg = "*** " + user_info_list[ssock].name + " yelled ***: ";
             for(int i = 1; i < cmd.size(); i++){
                 msg += cmd.at(i);
                 msg += " ";
             }
             msg.pop_back();
-            broadcast(recover_ioe_fd, user_info_list, msg);
+            broadcast(user_info_list, msg);
         }
         else cerr << "usage: yell [message]" << endl;
     }else if(cmd.at(0).compare("name") == 0){
         if(cmd.size() == 2){
-            int recover_ioe_fd[3] = {ssock, ssock, ssock};
             for(map<int, userinfo>::iterator it = user_info_list.begin(); it != user_info_list.end(); it++){
                 if((it->second).name.compare(cmd.at(1)) == 0){
                     cout << "*** User '" + cmd.at(1) + "' already exists. ***" << endl;
@@ -434,7 +428,7 @@ int buildInCmd(int ssock, vector<uidsock> &uid_sock_list, map<int, userinfo> &us
             }
             string msg = "*** User from " + user_info_list[ssock].conn_info + " is named '" + cmd.at(1) + "'. ***";
             user_info_list[ssock].name = cmd.at(1);
-            broadcast(recover_ioe_fd, user_info_list, msg);
+            broadcast(user_info_list, msg);
         }
         else cerr << "usage: name [newname]" << endl;
     }
@@ -597,9 +591,10 @@ string readInput(int ssock){
     return user_input;
 }
 
-int npsh(int recover_fd[3], int ssock, vector<uidsock> &uid_sock_list, map<int, userinfo> &user_info_list, vector<userpipe> &user_pipe_table){
+int npsh(int stdioe_fd_backup[3], int ssock, vector<uidsock> &online_uid_sock_list, map<int, userinfo> &user_info_list, vector<userpipe> &user_pipe_table){
     bool pipe_in_end;
     string user_input;
+    vector<string> build_in_cmds = {"exit", "setenv", "printenv", "who", "tell", "yell", "name"};
     vector<vector<string>> cmds;  // Outer vector: different cmds; Inner vector: single cmd + args
 
     user_input = readInput(ssock);
@@ -607,29 +602,32 @@ int npsh(int recover_fd[3], int ssock, vector<uidsock> &uid_sock_list, map<int, 
         user_input.pop_back();
     }
 
-    dup2(recover_fd[1], 1);
+    dup2(stdioe_fd_backup[1], 1);
     cout << user_input << endl;
     dup2(ssock, 1);
 
     if(user_input.size() >= 1) cmds = parseCmd(user_input, user_info_list[ssock].pipe_table, pipe_in_end);
     else return 0;  // Means the input is a blank line
 
-    if(cmds.at(0).at(0).compare("exit") == 0 || cmds.at(0).at(0).compare("setenv") == 0 || cmds.at(0).at(0).compare("printenv") == 0 || cmds.at(0).at(0).compare("who") == 0 || cmds.at(0).at(0).compare("tell") == 0 || cmds.at(0).at(0).compare("yell") == 0 || cmds.at(0).at(0).compare("name") == 0){
-        if(buildInCmd(ssock, uid_sock_list, user_info_list, cmds.at(0)) != 0) return 1;
+    if(find(build_in_cmds.begin(), build_in_cmds.end(), cmds.at(0).at(0)) != build_in_cmds.end()){
+        if(buildInCmd(ssock, online_uid_sock_list, user_info_list, cmds.at(0)) != 0)  // If buildInCmd returns 1 means user input "exit"
+            return 1;  // Thus, it should return 1 immediately
     }
-    else doFork(cmds, user_info_list[ssock].pipe_table, pipe_in_end, ssock, user_info_list, user_pipe_table, user_input);
+    else
+        doFork(cmds, user_info_list[ssock].pipe_table, pipe_in_end, ssock, user_info_list, user_pipe_table, user_input);
 
     return 0;
 }
 
-void clearUserInfo(int ssock, vector<uidsock> &uid_sock_list, map<int, userinfo> &user_info_list){
-    for(int i = 0; i < uid_sock_list.size(); i++){
-        if(uid_sock_list.at(i).sock == ssock){
-            uid_sock_list.erase(uid_sock_list.begin()+i);
+void clearUserInfo(int ssock, vector<uidsock> &online_uid_sock_list, map<int, userinfo> &user_info_list){
+    for(int i = 0; i < online_uid_sock_list.size(); i++){
+        if(online_uid_sock_list.at(i).sock == ssock){
+            online_uid_sock_list.erase(online_uid_sock_list.begin()+i);
             break;
         }
     }
     user_info_list.erase(ssock);
+
     return;
 }
 
@@ -638,15 +636,15 @@ void clearPipeTable(int ssock, map<int, userinfo> &user_info_list, vector<userpi
         if(user_pipe_table.at(i).src[0] == ssock){
             close(user_pipe_table.at(i).pipe_in);
             close(user_pipe_table.at(i).pipe_out);
-            user_pipe_table.erase(user_pipe_table.begin() + i);
+            user_pipe_table.erase(user_pipe_table.begin()+i);
         }else if(user_pipe_table.at(i).dst[0] == ssock){
             int src_sock = user_pipe_table.at(i).src[0];
             for(int j = 0; j < user_info_list[src_sock].pipe_table.size(); ){
                 if(user_info_list[src_sock].pipe_table.at(j).uid == user_pipe_table.at(i).dst[1]){
-                    user_info_list[src_sock].pipe_table.erase(user_info_list[src_sock].pipe_table.begin() + j);
+                    user_info_list[src_sock].pipe_table.erase(user_info_list[src_sock].pipe_table.begin()+j);
                     close(user_pipe_table.at(i).pipe_in);
                     close(user_pipe_table.at(i).pipe_out);
-                    user_pipe_table.erase(user_pipe_table.begin() + i);
+                    user_pipe_table.erase(user_pipe_table.begin()+i);
                 }else{
                     j++;
                 }
@@ -682,7 +680,7 @@ void printWelcome(int ssock){
     return;
 }
 
-void insertNewUser(int ssock, vector<uidsock> &uid_sock_list, map<int, userinfo> &user_info_list, sockaddr_in slave){
+void insertNewUser(int ssock, vector<uidsock> &online_uid_sock_list, map<int, userinfo> &user_info_list, sockaddr_in slave){
     char ip[INET_ADDRSTRLEN];
     uidsock uid_sock_tmp;
     userinfo user_info_tmp;
@@ -691,62 +689,65 @@ void insertNewUser(int ssock, vector<uidsock> &uid_sock_list, map<int, userinfo>
     user_info_tmp.envvar["PATH"] = "bin:.";
     inet_ntop(AF_INET, &(slave.sin_addr), ip, INET_ADDRSTRLEN);
     user_info_tmp.conn_info = ip + (string)":" + to_string(ntohs(slave.sin_port));
-    if(uid_sock_list.size() == 0){
+    if(online_uid_sock_list.size() == 0){
         user_info_tmp.uid = 1;
+        user_info_list[ssock] = user_info_tmp;
+
         uid_sock_tmp.uid = 1;
         uid_sock_tmp.sock = ssock;
-        user_info_list[ssock] = user_info_tmp;
-        uid_sock_list.push_back(uid_sock_tmp);
+        online_uid_sock_list.push_back(uid_sock_tmp);
     }else{
         int uid = 1;
-        for(int i = 0; i < uid_sock_list.size(); i++){
-            if(uid_sock_list.at(i).uid != uid){
+        for(int i = 0; i < online_uid_sock_list.size(); i++){
+            if(online_uid_sock_list.at(i).uid != uid){
                 user_info_tmp.uid = uid;
+                user_info_list[ssock] = user_info_tmp;
+
                 uid_sock_tmp.uid = uid;
                 uid_sock_tmp.sock = ssock;
-                user_info_list[ssock] = user_info_tmp;
-                uid_sock_list.insert(uid_sock_list.begin()+i, uid_sock_tmp);
+                online_uid_sock_list.insert(online_uid_sock_list.begin()+i, uid_sock_tmp);
                 return;
             }
-            // if((it->second).uid != uid){
-            //     user_info_tmp.uid = uid;
-            //     user_info_list.insert(it, pair<int, userinfo>(ssock, user_info_tmp));
-
-            //     return;
-            // }
             uid += 1;
         }
         user_info_tmp.uid = uid;
+        user_info_list[ssock] = user_info_tmp;
+
         uid_sock_tmp.uid = uid;
         uid_sock_tmp.sock = ssock;
-        user_info_list[ssock] = user_info_tmp;
-        uid_sock_list.push_back(uid_sock_tmp);
+        online_uid_sock_list.push_back(uid_sock_tmp);
     }
 
     return;
 }
 
 void initServer(int port){
-    int msock = 0, recover_fd[3];
-    vector<uidsock> uid_sock_list;
+    int msock = 0, setsockopt_flag = 1;
+    int stdioe_fd_backup[3];
+    int fd_set_num = FD_SETSIZE;
+
+    sockaddr_in master;
+    vector<uidsock> online_uid_sock_list;
     vector<userpipe> user_pipe_table;
     map<int, userinfo> user_info_list;
+    fd_set readable_fds, active_fds;
+    timeval select_timeout = {0, 5};
+
+    // Init recover fd
+    stdioe_fd_backup[0] = dup(0);
+    stdioe_fd_backup[1] = dup(1);
+    stdioe_fd_backup[2] = dup(2);
+    // Init master socket address
+    master.sin_family = AF_INET;
+    master.sin_port = htons(port);
+    master.sin_addr.s_addr = INADDR_ANY;
 
     msock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if(msock == -1){
         cerr << "npsh: cannot create socket (" << strerror(errno) << ")" << endl;
         exit(EXIT_FAILURE);
     }
-
-    int flag = 1;
-    sockaddr_in master;
-
-    // Init master socket address
-    master.sin_family = AF_INET;
-    master.sin_port = htons(port);
-    master.sin_addr.s_addr = INADDR_ANY; 
-
-    setsockopt(msock, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(int));
+    setsockopt(msock, SOL_SOCKET, SO_REUSEADDR, &setsockopt_flag, sizeof(int));
     if(bind(msock, (sockaddr *)&master, sizeof(sockaddr_in)) == -1){
         cerr << "npsh: cannot bind to port " << port << " (" << strerror(errno) << ")" << endl;
         exit(EXIT_FAILURE);
@@ -756,27 +757,21 @@ void initServer(int port){
         exit(EXIT_FAILURE);
     }
 
-    int fd_set_num = FD_SETSIZE;
-    fd_set readonly_fds, active_fds;
-    timeval timeout = {0, 5};
-
-    // Init active fd set
+    // Init active fd set and push master socket into active fd set
     FD_ZERO(&active_fds);
     FD_SET(msock, &active_fds);
 
-    recover_fd[0] = dup(0);
-    recover_fd[1] = dup(1);
-    recover_fd[2] = dup(2);
-
     while(1){
-        memcpy(&readonly_fds, &active_fds, sizeof(active_fds));
-
-        if(select(fd_set_num, &readonly_fds, NULL, NULL, &timeout) < 0){
+        // Replace whole readable fd set with active fd set, so select func can detect new changes of fd set
+        memcpy(&readable_fds, &active_fds, sizeof(active_fds));
+        // Find if there's a fd that has been changed in fd set (keep searching until there's one)
+        if(select(fd_set_num, &readable_fds, NULL, NULL, &select_timeout) < 0){
             if(errno != EINTR) cerr << "npsh: select failed (" << strerror(errno) << ")" << endl;
             continue;
         }
 
-        if(FD_ISSET(msock, &readonly_fds)){
+        // If the changed fd is master socket (means there's a new user tries to login)
+        if(FD_ISSET(msock, &readable_fds)){
             int ssock = 0, ssocklen = 0;
             string login_msg;
             sockaddr_in slave;
@@ -787,36 +782,42 @@ void initServer(int port){
                 cerr << "npsh: cannot accept socket (" << strerror(errno) << ")" << endl;
                 continue;
             }
-            int recover_ioe_fd[3] = {ssock, ssock, ssock};
-            FD_SET(ssock, &active_fds);
 
-            insertNewUser(ssock, uid_sock_list, user_info_list, slave);
+            // Push the slave socket (socket that is connected to the current user) into active fd set
+            FD_SET(ssock, &active_fds);
+            // Update online_uid_sock_list and user_info_list
+            insertNewUser(ssock, online_uid_sock_list, user_info_list, slave);
+            // Print welcome msg -> broadcast login msg -> print prompt
             dupToStdIOE(ssock, ssock, ssock);
             printWelcome(ssock);
             login_msg = "*** User '" + user_info_list[ssock].name + "' entered from " + user_info_list[ssock].conn_info + ". ***";
-            broadcast(recover_ioe_fd, user_info_list, login_msg);
-            // Print prompt
+            broadcast(user_info_list, login_msg);
             cout << "% " << flush;
         }
+
+        // Search for other fd in fd set
         for(int ssock = 0; ssock < fd_set_num; ssock++){
-            if(ssock != msock && FD_ISSET(ssock, &readonly_fds)){
-                clearenv();
+            // If the changed fd is slave socket (means there's a online user sends some msg to server)
+            if(ssock != msock && FD_ISSET(ssock, &readable_fds)){
                 dupToStdIOE(ssock, ssock, ssock);
+
+                clearenv();
                 initUserEnv(ssock, user_info_list);
-                if(npsh(recover_fd, ssock, uid_sock_list, user_info_list, user_pipe_table) == 0) cout << "% " << flush;
+
+                if(npsh(stdioe_fd_backup, ssock, online_uid_sock_list, user_info_list, user_pipe_table) == 0)  // If user type "exit" then the return value is 1
+                    cout << "% " << flush;
                 else{
-                    int recover_ioe_fd[3] = {ssock, ssock, ssock};
                     string logout_msg;
 
                     logout_msg = "*** User '" + user_info_list[ssock].name + "' left. ***";
-                    broadcast(recover_ioe_fd, user_info_list, logout_msg);
+                    broadcast(user_info_list, logout_msg);
 
                     dupToStdIOE(msock, msock, msock);
+                    clearPipeTable(ssock, user_info_list, user_pipe_table);
+                    clearUserInfo(ssock, online_uid_sock_list, user_info_list);
+
                     close(ssock);
                     FD_CLR(ssock, &active_fds);
-                    clearPipeTable(ssock, user_info_list, user_pipe_table);
-                    clearUserInfo(ssock, uid_sock_list, user_info_list);
-                    // user_info_list.erase(ssock);
                 }
             }
         }
