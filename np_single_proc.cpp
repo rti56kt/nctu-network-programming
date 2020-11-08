@@ -436,7 +436,7 @@ int buildInCmd(int ssock, vector<uidsock> &online_uid_sock_list, map<int, userin
     return 0;
 }
 
-vector<vector<string>> parseCmd(string user_input, vector<pipeinfo> &pipe_table, bool &pipe_in_end){
+vector<vector<string>> parseCmd(vector<string> build_in_cmds, string user_input, vector<pipeinfo> &pipe_table, bool &pipe_in_end){
     int pipe_cnt = 0;
     bool input_has_user_send_pipe = false;
     string token;
@@ -452,8 +452,8 @@ vector<vector<string>> parseCmd(string user_input, vector<pipeinfo> &pipe_table,
         tokens.push_back(token);
     }
 
-    // Check for build in cmds
-    if(tokens.at(0).compare("exit") == 0 || tokens.at(0).compare("setenv") == 0 || tokens.at(0).compare("printenv") == 0 || tokens.at(0).compare("who") == 0 || tokens.at(0).compare("tell") == 0 || tokens.at(0).compare("yell") == 0 || tokens.at(0).compare("name") == 0){
+    // Check for build in cmds and if it's a build in cmd, count every char (includes "|", "<", and ">") as a string or char instead of a pipe
+    if(find(build_in_cmds.begin(), build_in_cmds.end(), tokens.at(0)) != build_in_cmds.end()){
         for(int i = 0; i < tokens.size(); i++){
             cmd.push_back(tokens.at(i));
         }
@@ -464,18 +464,15 @@ vector<vector<string>> parseCmd(string user_input, vector<pipeinfo> &pipe_table,
 
     // Divide tokens into cmd + args, pipe, number pipe, and io redirection
     for(int i = 0; i < tokens.size(); i++){
+        pipe_in_end = true;
         if(tokens.at(i) == "<"){
             // Input redirection
             struct pipeinfo pipe_info_tmp;
 
-            if(!cmd.empty()) cmds.push_back(cmd);
-            cmd.clear();
-            pipe_in_end = true;
-
             // Initalize pipe_info_tmp that is going to push to pipe_table
+            pipe_info_tmp.pipe_type = 0;
             pipe_info_tmp.in = -1;
             pipe_info_tmp.out = -1;
-            pipe_info_tmp.pipe_type = 0;
             pipe_info_tmp.line_cnt = -1;
             pipe_info_tmp.uid = -1;
             pipe_info_tmp.behind_cmd_idx = pipe_cnt;
@@ -485,14 +482,10 @@ vector<vector<string>> parseCmd(string user_input, vector<pipeinfo> &pipe_table,
             // Output redirection
             struct pipeinfo pipe_info_tmp;
 
-            if(!cmd.empty()) cmds.push_back(cmd);
-            cmd.clear();
-            pipe_in_end = true;
-
             // Initalize pipe_info_tmp that is going to push to pipe_table
+            pipe_info_tmp.pipe_type = 1;
             pipe_info_tmp.in = -1;
             pipe_info_tmp.out = -1;
-            pipe_info_tmp.pipe_type = 1;
             pipe_info_tmp.line_cnt = -1;
             pipe_info_tmp.uid = -1;
             pipe_info_tmp.behind_cmd_idx = pipe_cnt;
@@ -502,14 +495,10 @@ vector<vector<string>> parseCmd(string user_input, vector<pipeinfo> &pipe_table,
             // Normal pipe
             struct pipeinfo pipe_info_tmp;
 
-            if(!cmd.empty()) cmds.push_back(cmd);
-            cmd.clear();
-            pipe_in_end = true;
-
             // Initalize pipe_info_tmp that is going to push to pipe_table
+            pipe_info_tmp.pipe_type = 2;
             pipe_info_tmp.in = -1;
             pipe_info_tmp.out = -1;
-            pipe_info_tmp.pipe_type = 2;
             pipe_info_tmp.line_cnt = -1;
             pipe_info_tmp.uid = -1;
             pipe_info_tmp.behind_cmd_idx = pipe_cnt;
@@ -520,18 +509,14 @@ vector<vector<string>> parseCmd(string user_input, vector<pipeinfo> &pipe_table,
             int pipe_number = 0;
             struct pipeinfo pipe_info_tmp;
 
-            if(!cmd.empty()) cmds.push_back(cmd);
-            cmd.clear();
-            pipe_in_end = true;
-
             // Parse the number behind the pipe
             pipe_number = atoi(tokens.at(i).substr(1, tokens.at(i).size()).c_str());
 
             // Initalize pipe_info_tmp that is going to push to pipe_table
-            pipe_info_tmp.in = -1;
-            pipe_info_tmp.out = -1;
             if(tokens.at(i).at(0) == '|') pipe_info_tmp.pipe_type = 3;
             else if(tokens.at(i).at(0) == '!') pipe_info_tmp.pipe_type = 4;
+            pipe_info_tmp.in = -1;
+            pipe_info_tmp.out = -1;
             pipe_info_tmp.line_cnt = pipe_number;
             pipe_info_tmp.uid = -1;
             pipe_info_tmp.behind_cmd_idx = pipe_cnt;
@@ -541,22 +526,17 @@ vector<vector<string>> parseCmd(string user_input, vector<pipeinfo> &pipe_table,
             int uid = 0;
             struct pipeinfo pipe_info_tmp;
 
-            if(!cmd.empty()) cmds.push_back(cmd);
-            cmd.clear();
-            pipe_in_end = true;
-
-            // Parse the number behind the pipe
+            // Parse uid behind the pipe
             uid = atoi(tokens.at(i).substr(1, tokens.at(i).size()).c_str());
 
             // Initalize pipe_info_tmp that is going to push to pipe_table
-            pipe_info_tmp.in = -1;
-            pipe_info_tmp.out = -1;
             if(tokens.at(i).at(0) == '>'){
                 pipe_info_tmp.pipe_type = 5;
                 input_has_user_send_pipe = true;
             }
             else if(tokens.at(i).at(0) == '<') pipe_info_tmp.pipe_type = 6;
-
+            pipe_info_tmp.in = -1;
+            pipe_info_tmp.out = -1;
             pipe_info_tmp.line_cnt = -1;
             pipe_info_tmp.uid = uid;
             pipe_info_tmp.behind_cmd_idx = pipe_cnt;
@@ -570,15 +550,17 @@ vector<vector<string>> parseCmd(string user_input, vector<pipeinfo> &pipe_table,
             cmd.push_back(tokens.at(i));
             pipe_in_end = false;
         }
+        if(!cmd.empty() && pipe_in_end){
+            cmds.push_back(cmd);
+            cmd.clear();
+        }
     }
 
     if(!pipe_in_end){
         cmds.push_back(cmd);
         cmd.clear();
     }
-    if(pipe_table.size() != 0){
-        if(pipe_table.back().pipe_type == 6) pipe_in_end = false;
-    }
+    if(pipe_table.size() != 0 && pipe_table.back().pipe_type == 6) pipe_in_end = false;
 
     return cmds;
 }
@@ -606,7 +588,7 @@ int npsh(int stdioe_fd_backup[3], int ssock, vector<uidsock> &online_uid_sock_li
     cout << user_input << endl;
     dup2(ssock, 1);
 
-    if(user_input.size() >= 1) cmds = parseCmd(user_input, user_info_list[ssock].pipe_table, pipe_in_end);
+    if(user_input.size() >= 1) cmds = parseCmd(build_in_cmds, user_input, user_info_list[ssock].pipe_table, pipe_in_end);
     else return 0;  // Means the input is a blank line
 
     if(find(build_in_cmds.begin(), build_in_cmds.end(), cmds.at(0).at(0)) != build_in_cmds.end()){
