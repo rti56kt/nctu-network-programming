@@ -74,37 +74,86 @@ void broadcast(map<int, userinfo> &user_info_list, string msg){
     return;
 }
 
-void doFork(vector<vector<string>> cmds, vector<pipeinfo> &pipe_table, bool &pipe_in_end, int ssock, map<int, userinfo> &user_info_list, vector<userpipe> &user_pipe_table, string user_input){
-    pid_t pid;
-    vector<pid_t> pid_list;
+bool pipeCreateOrSelect(int cur_cmd_index, vector<pipeinfo> &pipe_table, int ssock, map<int, userinfo> &user_info_list, vector<userpipe> &user_pipe_table, string user_input){
+    bool err = false;
+    for(int j = 0; j < pipe_table.size(); j++){
+        if(pipe_table.at(j).behind_cmd_idx == cur_cmd_index){
+            // If pipe_j is behind cmds_i
+            bool same_pipe = false;
 
-    for(int i = 0; i < cmds.size(); i++){
-        bool err = false;
-        // Select a existing same pipe (look up if there's same destination cmd/line by surveying whole pipe_table)
-        // Create a new pipe if there's no existing same pipe
-        // Store the pipe's fd to pipe_table
-        for(int j = 0; j < pipe_table.size(); j++){
-            if(pipe_table.at(j).behind_cmd_idx == i){
-                // If pipe_j is behind cmds_i
-                bool same_pipe = false;
+            if(pipe_table.at(j).pipe_type == 3 || pipe_table.at(j).pipe_type == 4){
+                // If pipe_j is a number pipe
+                for(int k = 0; k < j; k++){
+                    if(pipe_table.at(j).line_cnt == pipe_table.at(k).line_cnt){
+                        // If there's a same number pipe existing in pipe_table
+                        same_pipe = true;
+                        pipe_table.at(j).in = pipe_table.at(k).in;
+                        pipe_table.at(j).out = pipe_table.at(k).out;
+                        break;
+                    }
+                }
+            }
 
-                if(pipe_table.at(j).pipe_type == 3 || pipe_table.at(j).pipe_type == 4){
-                    // If pipe_j is a number pipe
-                    for(int k = 0; k < j; k++){
-                        if(pipe_table.at(j).line_cnt == pipe_table.at(k).line_cnt){
-                            // If there's a same number pipe existing in pipe_table
-                            same_pipe = true;
-                            pipe_table.at(j).in = pipe_table.at(k).in;
-                            pipe_table.at(j).out = pipe_table.at(k).out;
+            // Check user recv pipe
+            if(pipe_table.at(j).pipe_type == 6){
+                bool find_user = false, find_pipe = false;
+                for(map<int, userinfo>::iterator it = user_info_list.begin(); it != user_info_list.end(); it++){
+                    if((it->second).uid == pipe_table.at(j).uid){
+                        find_user = true;
+                        break;
+                    }
+                }
+                if(!find_user){
+                    cerr << "*** Error: user #" << pipe_table.at(j).uid << " does not exist yet. ***" << endl;
+                    err = true;
+                }
+                if(!err){
+                    for(int k = 0; k < user_pipe_table.size(); k++){
+                        if(user_info_list[ssock].uid == user_pipe_table.at(k).dst[1] && pipe_table.at(j).uid == user_pipe_table.at(k).src[1]){
+                            int recover_ioe_fd[3];
+                            string msg, src_name, src_uid, dst_name, dst_uid;
+                            pipe_table.at(j).in = user_pipe_table.at(k).pipe_in;
+                            pipe_table.at(j).out = user_pipe_table.at(k).pipe_out;
+                            find_pipe = true;
+
+                            src_name = user_info_list[user_pipe_table.at(k).src[0]].name;
+                            src_uid = to_string(user_pipe_table.at(k).src[1]);
+                            dst_name = user_info_list[user_pipe_table.at(k).dst[0]].name;
+                            dst_uid = to_string(user_pipe_table.at(k).dst[1]);
+                            msg = "*** " + dst_name + " (#" + dst_uid + ") just received from " + src_name + " (#" + src_uid + ") by '" + user_input + "' ***";
+                            broadcast(user_info_list, msg);
                             break;
                         }
                     }
+                    if(!find_pipe){
+                        cerr << "*** Error: the pipe #" << pipe_table.at(j).uid << "->#" << user_info_list[ssock].uid << " does not exist yet. ***" << endl;
+                        err = true;
+                    }
                 }
-                if(pipe_table.at(j).pipe_type == 6){
-                    // If pipe_j is a user recv pipe
-                    bool find_user = false, find_pipe = false;
+                same_pipe = true;
+            }
+
+            // Create new pipe
+            if(!same_pipe){
+                // If pipe_j is not a number pipe
+                int pipe_tmp[2];
+
+                if(pipe(pipe_tmp) < 0){
+                    // if failed to create a pipe
+                    cerr << "npsh: pipe error" << endl;
+                }
+
+                // Assign the new pipe's fd to pipe_table 
+                pipe_table.at(j).in = pipe_tmp[1];
+                pipe_table.at(j).out = pipe_tmp[0];
+
+                // Check user send pipe
+                if(pipe_table.at(j).pipe_type == 5){
+                    int dst_sock = 0;
+                    bool find_user = false;
                     for(map<int, userinfo>::iterator it = user_info_list.begin(); it != user_info_list.end(); it++){
                         if((it->second).uid == pipe_table.at(j).uid){
+                            dst_sock = (it->first);
                             find_user = true;
                             break;
                         }
@@ -112,93 +161,50 @@ void doFork(vector<vector<string>> cmds, vector<pipeinfo> &pipe_table, bool &pip
                     if(!find_user){
                         cerr << "*** Error: user #" << pipe_table.at(j).uid << " does not exist yet. ***" << endl;
                         err = true;
-                        break;
                     }
                     if(!err){
                         for(int k = 0; k < user_pipe_table.size(); k++){
-                            if(user_info_list[ssock].uid == user_pipe_table.at(k).dst[1] && pipe_table.at(j).uid == user_pipe_table.at(k).src[1]){
-                                int recover_ioe_fd[3];
-                                string msg, src_name, src_uid, dst_name, dst_uid;
-                                pipe_table.at(j).in = user_pipe_table.at(k).pipe_in;
-                                pipe_table.at(j).out = user_pipe_table.at(k).pipe_out;
-                                find_pipe = true;
-
-                                src_name = user_info_list[user_pipe_table.at(k).src[0]].name;
-                                src_uid = to_string(user_pipe_table.at(k).src[1]);
-                                dst_name = user_info_list[user_pipe_table.at(k).dst[0]].name;
-                                dst_uid = to_string(user_pipe_table.at(k).dst[1]);
-                                msg = "*** " + dst_name + " (#" + dst_uid + ") just received from " + src_name + " (#" + src_uid + ") by '" + user_input + "' ***";
-                                broadcast(user_info_list, msg);
+                            if(user_info_list[ssock].uid == user_pipe_table.at(k).src[1] && pipe_table.at(j).uid == user_pipe_table.at(k).dst[1]){
+                                cerr << "*** Error: the pipe #" << user_info_list[ssock].uid << "->#" << pipe_table.at(j).uid << " already exists. ***" << endl;
+                                err = true;
                                 break;
                             }
                         }
-                        if(!find_pipe){
-                            cerr << "*** Error: the pipe #" << pipe_table.at(j).uid << "->#" << user_info_list[ssock].uid << " does not exist yet. ***" << endl;
-                            err = true;
-                        }
                     }
-                    same_pipe = true;
-                }
-                if(!same_pipe){
-                    // If pipe_j is not a number pipe
-                    int pipe_tmp[2];
+                    if(!err){
+                        int recover_ioe_fd[3];
+                        string msg, src_name, src_uid, dst_name, dst_uid;
+                        struct userpipe user_pipe_tmp;
+                        user_pipe_tmp.src[0] = ssock;
+                        user_pipe_tmp.src[1] = user_info_list[ssock].uid;
+                        user_pipe_tmp.dst[0] = dst_sock;
+                        user_pipe_tmp.dst[1] = pipe_table.at(j).uid;
+                        user_pipe_tmp.pipe_in = pipe_tmp[1];
+                        user_pipe_tmp.pipe_out = pipe_tmp[0];
+                        user_pipe_table.push_back(user_pipe_tmp);
 
-                    if(pipe(pipe_tmp) < 0){
-                        // if failed to create a pipe
-                        cerr << "npsh: pipe error" << endl;
-                    }
-
-                    // Assign the new pipe's fd to pipe_table 
-                    pipe_table.at(j).in = pipe_tmp[1];
-                    pipe_table.at(j).out = pipe_tmp[0];
-                    if(pipe_table.at(j).pipe_type == 5){
-                        int dst_sock = 0;
-                        bool find_user = false;
-                        for(map<int, userinfo>::iterator it = user_info_list.begin(); it != user_info_list.end(); it++){
-                            if((it->second).uid == pipe_table.at(j).uid){
-                                dst_sock = (it->first);
-                                find_user = true;
-                                break;
-                            }
-                        }
-                        if(!find_user){
-                            cerr << "*** Error: user #" << pipe_table.at(j).uid << " does not exist yet. ***" << endl;
-                            err = true;
-                            break;
-                        }
-                        if(!err){
-                            for(int k = 0; k < user_pipe_table.size(); k++){
-                                if(user_info_list[ssock].uid == user_pipe_table.at(k).src[1] && pipe_table.at(j).uid == user_pipe_table.at(k).dst[1]){
-                                    cerr << "*** Error: the pipe #" << user_info_list[ssock].uid << "->#" << pipe_table.at(j).uid << " already exists. ***" << endl;
-                                    err = true;
-                                    break;
-                                }
-                            }
-                        }
-                        if(!err){
-                            int recover_ioe_fd[3];
-                            string msg, src_name, src_uid, dst_name, dst_uid;
-                            struct userpipe user_pipe_tmp;
-                            user_pipe_tmp.src[0] = ssock;
-                            user_pipe_tmp.src[1] = user_info_list[ssock].uid;
-                            user_pipe_tmp.dst[0] = dst_sock;
-                            user_pipe_tmp.dst[1] = pipe_table.at(j).uid;
-                            user_pipe_tmp.pipe_in = pipe_tmp[1];
-                            user_pipe_tmp.pipe_out = pipe_tmp[0];
-                            user_pipe_table.push_back(user_pipe_tmp);
-
-                            src_name = user_info_list[user_pipe_tmp.src[0]].name;
-                            src_uid = to_string(user_pipe_tmp.src[1]);
-                            dst_name = user_info_list[user_pipe_tmp.dst[0]].name;
-                            dst_uid = to_string(user_pipe_tmp.dst[1]);
-                            msg = "*** " + src_name + " (#" + src_uid + ") just piped '" + user_input + "' to " + dst_name + " (#" + dst_uid + ") ***";
-                            broadcast(user_info_list, msg);
-                        }
+                        src_name = user_info_list[user_pipe_tmp.src[0]].name;
+                        src_uid = to_string(user_pipe_tmp.src[1]);
+                        dst_name = user_info_list[user_pipe_tmp.dst[0]].name;
+                        dst_uid = to_string(user_pipe_tmp.dst[1]);
+                        msg = "*** " + src_name + " (#" + src_uid + ") just piped '" + user_input + "' to " + dst_name + " (#" + dst_uid + ") ***";
+                        broadcast(user_info_list, msg);
                     }
                 }
-                if(pipe_table.at(j).behind_cmd_idx == i+1) break;
             }
+            if(pipe_table.at(j).behind_cmd_idx == cur_cmd_index+1) break;
         }
+    }
+
+    return err;
+}
+
+void doFork(vector<vector<string>> cmds, vector<pipeinfo> &pipe_table, bool &pipe_in_end, int ssock, map<int, userinfo> &user_info_list, vector<userpipe> &user_pipe_table, string user_input){
+    pid_t pid;
+    vector<pid_t> pid_list;
+
+    for(int i = 0; i < cmds.size(); i++){
+        bool err = pipeCreateOrSelect(i, pipe_table, ssock, user_info_list, user_pipe_table, user_input);
 
         pid = fork();
         pid_list.push_back(pid);
@@ -311,7 +317,7 @@ void doFork(vector<vector<string>> cmds, vector<pipeinfo> &pipe_table, bool &pip
                 close(pipe_table.at(j).out);
                 close(pipe_table.at(j).in);
                 pipe_table.erase(pipe_table.begin() + j);
-            }else if(pipe_table.at(j).behind_cmd_idx == i && err){
+            }else if(pipe_table.at(j).behind_cmd_idx == i && pipe_table.at(j).pipe_type >= 5 && err){
                 pipe_table.erase(pipe_table.begin() + j);
             }else if(pipe_table.at(j).behind_cmd_idx == i && pipe_table.at(j).pipe_type == 6 && !err){
                 // close and clear
