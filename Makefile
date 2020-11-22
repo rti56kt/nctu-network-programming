@@ -10,16 +10,18 @@ all: build
 
 build: clean part1 part2
 
-part1: clean http_server.cpp
+part1: clean http_server.cpp console.cpp
 	$(CC) http_server.cpp $(CCFLAGS) $(CC_INCLUDE_PARAMS) $(CC_LIB_PARAMS) -o http_server
+	$(CC) console.cpp $(CCFLAGS) $(CC_INCLUDE_PARAMS) $(CC_LIB_PARAMS) -o console.cgi
 
 part2: clean cgi_server.cpp
 	$(CC) cgi_server.cpp $(CCFLAGS) $(CC_INCLUDE_PARAMS) $(CC_LIB_PARAMS) -o cgi_server.exe
 
 build-dbg: clean part1 part2
 
-part1-dbg: clean http_server.cpp
+part1-dbg: clean http_server.cpp console.cpp
 	$(CC) http_server.cpp $(DBGFLAGS) $(CC_INCLUDE_PARAMS) $(CC_LIB_PARAMS) -o http_server
+	$(CC) console.cpp $(DBGFLAGS) $(CC_INCLUDE_PARAMS) $(CC_LIB_PARAMS) -o console.cgi
 
 part2-dbg: clean cgi_server.cpp
 	$(CC) cgi_server.cpp $(DBGFLAGS) $(CC_INCLUDE_PARAMS) $(CC_LIB_PARAMS) -o cgi_server.exe

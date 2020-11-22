@@ -11,18 +11,6 @@
 using boost::asio::ip::tcp;
 using namespace std;
 
-struct connenv{
-    string REQUEST_METHOD;
-    string REQUEST_URI;
-    string QUERY_STRING;
-    string SERVER_PROTOCOL;
-    string HTTP_HOST;
-    string SERVER_ADDR;
-    string SERVER_PORT;
-    string REMOTE_ADDR;
-    string REMOTE_PORT;
-};
-
 class session
     : public enable_shared_from_this<session>{
 public:
@@ -42,17 +30,26 @@ private:
                 if(!ec){
                     // cout << data_ << endl;
                     do_parse();
-                    do_write(length);
+                    set_env();
+                    do_exec();
                 }
             });
     }
 
-    void do_write(size_t length){
+    void do_write(bool exist){
         auto self(shared_from_this());
-        boost::asio::async_write(socket_, boost::asio::buffer(data_, length),
+        string resp;
+        if(exist){
+            resp += "HTTP/1.1 200 OK\r\n";
+        }
+        else{
+            resp += "HTTP/1.1 404 NOT FOUND\r\n\r\n";
+        }
+        // resp += "\r\n";
+        boost::asio::async_write(socket_, boost::asio::buffer(resp, resp.length()),
             [this, self](boost::system::error_code ec, size_t /*length*/){
                 if(!ec){
-                    do_read();
+                    // No err
                 }
             });
     }
@@ -67,37 +64,64 @@ private:
             getline(datastream, headerline);
             boost::split(token, headerline, boost::is_any_of(" "), boost::token_compress_on);
             if(i == 0){
-                curr_conn_env.REQUEST_METHOD = token.at(0);
-                curr_conn_env.REQUEST_URI = token.at(1);
-                curr_conn_env.SERVER_PROTOCOL = token.at(2);
+                curr_conn_env["REQUEST_METHOD"] = token.at(0);
+                curr_conn_env["REQUEST_URI"] = token.at(1);
+                curr_conn_env["SERVER_PROTOCOL"] = token.at(2);
                 if(token.at(1).find("?") != string::npos){
-                    curr_conn_env.QUERY_STRING = token.at(1).substr(token.at(1).find("?")+1);
+                    curr_conn_env["QUERY_STRING"] = token.at(1).substr(token.at(1).find("?")+1);
                 }
+                else curr_conn_env["QUERY_STRING"] = "";
             }
             else if(i == 1){
-                curr_conn_env.HTTP_HOST = token.at(1);
+                curr_conn_env["HTTP_HOST"] = token.at(1);
             }
         }
-        curr_conn_env.REMOTE_ADDR = socket_.remote_endpoint().address().to_string();
-        curr_conn_env.REMOTE_PORT = to_string(socket_.remote_endpoint().port());
-        curr_conn_env.SERVER_ADDR = socket_.local_endpoint().address().to_string();
-        curr_conn_env.SERVER_PORT = to_string(socket_.local_endpoint().port());
+        curr_conn_env["REMOTE_ADDR"] = socket_.remote_endpoint().address().to_string();
+        curr_conn_env["REMOTE_PORT"] = to_string(socket_.remote_endpoint().port());
+        curr_conn_env["SERVER_ADDR"] = socket_.local_endpoint().address().to_string();
+        curr_conn_env["SERVER_PORT"] = to_string(socket_.local_endpoint().port());
 
-        cout << curr_conn_env.REQUEST_METHOD << endl;
-        cout << curr_conn_env.REQUEST_URI << endl;
-        cout << curr_conn_env.SERVER_PROTOCOL << endl;
-        cout << curr_conn_env.QUERY_STRING << endl;
-        cout << curr_conn_env.HTTP_HOST << endl;
-        cout << curr_conn_env.REMOTE_ADDR << endl;
-        cout << curr_conn_env.REMOTE_PORT << endl;
-        cout << curr_conn_env.SERVER_ADDR << endl;
-        cout << curr_conn_env.SERVER_PORT << endl;
+        cout << "[INFO]\tchild" << getpid() << ":" << curr_conn_env["REQUEST_URI"] << endl;
+    }
+
+    void do_exec(){
+        string uri = curr_conn_env["REQUEST_URI"];
+        string file = "." + (uri.find("?") != string::npos ? uri.substr(0, uri.find("?")) : uri);
+        char* arg[] = {strdup(file.c_str()), NULL};
+
+        if(check_exist(file)){
+            do_write(true);
+            dup_fd();
+            socket_.close();
+            execvp(file.c_str(), arg);
+        }
+        else{
+            do_write(false);
+            socket_.close();
+            exit(EXIT_SUCCESS);
+        }
+    }
+
+    bool check_exist(string file){
+        return access(file.c_str(), F_OK) == 0 ? true : false;
+    }
+
+    void set_env(){
+        clearenv();
+        for(map<string, string>::iterator iter = curr_conn_env.begin(); iter != curr_conn_env.end(); iter++){
+            setenv((iter->first).c_str(), (iter->second).c_str(), 1);
+        }
+    }
+
+    void dup_fd(){
+        dup2(socket_.native_handle(), 0);
+        dup2(socket_.native_handle(), 1);
     }
 
     tcp::socket socket_;
     enum {max_length = 1024};
     char data_[max_length];
-    connenv curr_conn_env;
+    map<string, string> curr_conn_env;
 };
 
 class server{
@@ -133,7 +157,16 @@ private:
 
                 io_context_.notify_fork(boost::asio::io_context::fork_prepare);
                 pid = fork();
-                if(pid){
+                if(pid < 0){
+                    io_context_.notify_fork(boost::asio::io_context::fork_parent);
+                    cerr << "[ERROR]\thttp_server: fork error" << endl;
+                    move(socket).close();
+                }
+                else if(pid == 0){
+                    // Inform the io_context that the fork is finished and that this
+                    // is the child process. The io_context uses this opportunity to
+                    // create any internal file descriptors that must be private to
+                    // the new process.
                     io_context_.notify_fork(boost::asio::io_context::fork_child);
 
                     // The child won't be accepting new connections, so we can close
@@ -145,6 +178,19 @@ private:
                     signal_.cancel();
 
                     make_shared<session>(move(socket))->start();
+                }
+                else if(pid > 0){
+                    // Inform the io_context that the fork is finished (or failed)
+                    // and that this is the parent process. The io_context uses this
+                    // opportunity to recreate any internal resources that were
+                    // cleaned up during preparation for the fork.
+                    io_context_.notify_fork(boost::asio::io_context::fork_parent);
+
+                    cout << "[INFO]\tparent: " << pid << endl;
+
+                    // The parent process can now close the newly accepted socket. It
+                    // remains open in the child.
+                    move(socket).close();
                 }
             }
 
@@ -172,7 +218,7 @@ int main(int argc, char* argv[]){
     }
 
     catch(exception& e){
-        cerr << "Exception: " << e.what() << "\n";
+        cerr << "[Error]\tException: " << e.what() << "\n";
     }
 
     return 0;

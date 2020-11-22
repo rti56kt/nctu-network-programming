@@ -50,6 +50,7 @@ Thumbs.db
 
 # Binary executable files
 http_server
+console.cgi
 cgi_server.exe
 
 # Useless folders
