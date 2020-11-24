@@ -35,6 +35,7 @@ appendix: commands/noop.cpp commands/number.cpp commands/removetag.cpp commands/
 	$(CC) commands/number.cpp -o bin/number
 	$(CC) commands/removetag.cpp -o bin/removetag
 	$(CC) commands/removetag0.cpp -o bin/removetag0
+	$(CC) commands/delayedremovetag.cpp -o bin/delayedremovetag
 
 clean-appendix:
 	rm -rf bin

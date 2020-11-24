@@ -17,9 +17,10 @@ using namespace std;
 class session
     : public enable_shared_from_this<session>{
 public:
-    session(tcp::socket socket, boost::asio::io_context& io_context)
+    session(tcp::socket socket, boost::asio::io_context& io_context, boost::asio::signal_set& signal)
         : socket_(move(socket)),
           io_context_(io_context),
+          signal_(signal),
           timer_(io_context){
     }
 
@@ -30,10 +31,10 @@ public:
 private:
     void do_read(){
         auto self(shared_from_this());
-        timer_.expires_from_now(chrono::seconds(5));
+        timer_.expires_from_now(chrono::seconds(10));
         timer_.async_wait([this, self](auto ec){
             if(!read_flag){
-                cout << "[INFO]\t(" << getpid() << "): Timeout(5s): Close connection from (sock:" << socket_.native_handle() << "): " << flush;
+                cout << "[INFO]\t(" << getpid() << "): Timeout(10s): Close connection from (sock:" << socket_.native_handle() << "): " << flush;
                 cout << socket_.remote_endpoint().address() << ":" << socket_.remote_endpoint().port() << endl;
                 socket_.close();
             }
@@ -114,6 +115,7 @@ private:
             // create any internal file descriptors that must be private to
             // the new process.
             io_context_.notify_fork(boost::asio::io_context::fork_child);
+            signal_.cancel();
             set_env();
             do_exec();
         }
@@ -167,6 +169,7 @@ private:
 
     tcp::socket socket_;
     boost::asio::io_context& io_context_;
+    boost::asio::signal_set& signal_;
     boost::asio::steady_timer timer_;
     enum {max_length = 1024};
     char data_[max_length];
@@ -180,6 +183,7 @@ public:
         : io_context_(io_context),
           signal_(io_context, SIGCHLD),
           acceptor_(io_context, tcp::endpoint(tcp::v4(), port)){
+        acceptor_.set_option(boost::asio::socket_base::reuse_address(true));
         wait_for_signal();
         do_accept();
     }
@@ -206,7 +210,7 @@ private:
             if(!ec){
                 cout << "[INFO]\t(" << getpid() << "): Connection from (sock:" << socket.native_handle() << "): " << flush;
                 cout << socket.remote_endpoint().address() << ":" << socket.remote_endpoint().port() << endl;
-                make_shared<session>(move(socket), io_context_)->start();
+                make_shared<session>(move(socket), io_context_, signal_)->start();
             }
 
             do_accept();
@@ -231,7 +235,6 @@ int main(int argc, char* argv[]){
 
         io_context.run();
     }
-
     catch(exception& e){
         cerr << "[Error]\thttp_server: Exception: " << e.what() << "\n";
     }

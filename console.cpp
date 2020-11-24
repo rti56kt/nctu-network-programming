@@ -1,17 +1,14 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <signal.h>
+#include <sys/wait.h>
 #include <boost/asio.hpp>
 #include <boost/algorithm/string.hpp>
+#include "console.hpp"
 
 using boost::asio::ip::tcp;
 using namespace std;
-
-struct query{
-    string host;
-    string port;
-    string file;
-};
 
 vector<query> parseQueryString(){
     vector<string> token;
@@ -28,9 +25,6 @@ vector<query> parseQueryString(){
             q_tmp.file = token.at(i+2).substr(token.at(i+2).find("=")+1);
 
             query_string.push_back(q_tmp);
-        }
-        else{
-            break;
         }
     }
 
@@ -105,7 +99,7 @@ string generateHtml(vector<string> servers){
     "        <tr>\n";
     for(uint i = 0; i < servers.size(); i++){
         html += "          <td><pre id=\"s";
-        html += i;
+        html += to_string(i);
         html += "\" class=\"mb-0\"></pre></td>";
     }
     html += \
@@ -118,13 +112,29 @@ string generateHtml(vector<string> servers){
     return html;
 }
 
-int main(){
-    vector<query> query_string = parseQueryString();
-    vector<string> servers = getServers(query_string);
-    string html = generateHtml(servers);
+void createClients(vector<query> query_string){
+    boost::asio::io_context io_context;
+    for(uint i = 0; i < query_string.size(); i++){
+        tcp::resolver r(io_context);
+        make_shared<client>(io_context, query_string.at(i), i)->start(r.resolve(query_string.at(i).host, query_string.at(i).port));
+    }
+    io_context.run();
+}
 
-    cout << "Content-type: text/html\r\n\r\n" << flush;
-    cout << html << flush;
+int main(){
+    try{
+        vector<query> query_string = parseQueryString();
+        vector<string> servers = getServers(query_string);
+        string html = generateHtml(servers);
+
+        cout << "Content-type: text/html\r\n\r\n" << flush;
+        cout << html << flush;
+
+        createClients(query_string);
+    }
+    catch(exception& e){
+        cerr << "[Error]\thttp_server: Exception: " << e.what() << "\n";
+    }
 
     return 0;
 }
