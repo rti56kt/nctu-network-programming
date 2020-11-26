@@ -54,11 +54,8 @@ private:
                 if(!ec){
                     vector<string> token;
                     boost::split(token, data_, boost::is_any_of("\n"), boost::token_compress_on);
+                    cout << "<script>console.log(\"" << data_ << "\")</script>" << flush;
                     for(uint i = 0; i != token.size(); i++){
-                        boost::replace_all(token.at(i), "'", "&apos;");
-                        boost::replace_all(token.at(i), "\"", "&quot;");
-                        boost::replace_all(token.at(i), "<", "&lt;");
-                        boost::replace_all(token.at(i), ">", "&gt;");
                         if(i != token.size()-1) outputShell(token.at(i) + "&NewLine;");
                         else outputShell(token.at(i));
                     }
@@ -82,6 +79,7 @@ private:
         boost::replace_all(cmd, "\n", "");
         boost::replace_all(cmd, "\r", "");
         outputCmd(cmd + "&NewLine;");
+        cmd += "\n";
         usleep(200000);
         boost::asio::async_write(socket_, boost::asio::buffer(cmd, cmd.length()),
             [this, self](boost::system::error_code ec, size_t /*length*/){
