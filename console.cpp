@@ -1,7 +1,6 @@
 #include <iostream>
 #include <string>
 #include <vector>
-#include <signal.h>
 #include <sys/wait.h>
 #include <boost/asio.hpp>
 #include <boost/algorithm/string.hpp>

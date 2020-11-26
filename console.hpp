@@ -91,12 +91,21 @@ private:
             });
     }
 
+    string replaceHtmlSpecialChar(string msg){
+        boost::replace_all(msg, "\'", "&apos;");
+        boost::replace_all(msg, "\"", "&quot;");
+        boost::replace_all(msg, "<", "&lt;");
+        boost::replace_all(msg, ">", "&gt;");
+
+        return msg;
+    }
+
     void outputShell(string msg){
-        cout << "<script>document.getElementById('s" << server_num_ << "').innerHTML += '" << msg << "';</script>" << flush;
+        cout << "<script>document.getElementById('s" << server_num_ << "').innerHTML += '" << replaceHtmlSpecialChar(msg) << "';</script>" << flush;
     }
 
     void outputCmd(string msg){
-        cout << "<script>document.getElementById('s" << server_num_ << "').innerHTML += '<b>" << msg << "</b>';</script>" << flush;
+        cout << "<script>document.getElementById('s" << server_num_ << "').innerHTML += '<b>" << replaceHtmlSpecialChar(msg) << "</b>';</script>" << flush;
     }
 
     boost::asio::io_context& io_context_;
