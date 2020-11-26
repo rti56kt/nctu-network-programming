@@ -83,6 +83,7 @@ private:
         boost::replace_all(cmd, "\n", "");
         boost::replace_all(cmd, "\r", "");
         outputCmd(cmd + "&NewLine;");
+        cmd += "\n";
         usleep(200000);
         boost::asio::async_write(socket_, boost::asio::buffer(cmd, cmd.length()),
             [this, self](boost::system::error_code ec, size_t /*length*/){
