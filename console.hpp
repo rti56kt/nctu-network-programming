@@ -52,13 +52,14 @@ private:
         boost::asio::async_read_until(socket_, boost::asio::dynamic_buffer(data_), "% ",
             [this, self](boost::system::error_code ec, size_t length){
                 if(!ec){
-                    vector<string> token;
-                    boost::split(token, data_, boost::is_any_of("\n"), boost::token_compress_on);
-                    cout << "<script>console.log(\"" << data_ << "\")</script>" << flush;
-                    for(uint i = 0; i != token.size(); i++){
-                        if(i != token.size()-1) outputShell(token.at(i) + "&NewLine;");
-                        else outputShell(token.at(i));
-                    }
+                    // vector<string> token;
+                    // boost::split(token, data_, boost::is_any_of("\n"), boost::token_compress_on);
+                    // cout << "<script>console.log(\"" << data_ << "\")</script>" << flush;
+                    // for(uint i = 0; i != token.size(); i++){
+                    //     if(i != token.size()-1) outputShell(token.at(i) + "&NewLine;");
+                    //     else outputShell(token.at(i));
+                    // }
+                    outputShell(data_);
                     data_.clear();
                     do_write();
                 }
@@ -76,11 +77,8 @@ private:
         getline(file_stream_, cmd_);
         string cmd = cmd_;
         cmd_.clear();
-        boost::replace_all(cmd, "\n", "");
-        boost::replace_all(cmd, "\r", "");
-        outputCmd(cmd + "&NewLine;");
-        cmd += "\n";
-        usleep(200000);
+        outputCmd(cmd + "\n");
+        usleep(10000);
         boost::asio::async_write(socket_, boost::asio::buffer(cmd, cmd.length()),
             [this, self](boost::system::error_code ec, size_t /*length*/){
                 if(!ec){
@@ -90,6 +88,8 @@ private:
     }
 
     string replaceHtmlSpecialChar(string msg){
+        boost::replace_all(msg, "\r", "");
+        boost::replace_all(msg, "\n", "&NewLine;");
         boost::replace_all(msg, "\'", "&apos;");
         boost::replace_all(msg, "\"", "&quot;");
         boost::replace_all(msg, "<", "&lt;");
