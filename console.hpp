@@ -52,13 +52,6 @@ private:
         boost::asio::async_read_until(socket_, boost::asio::dynamic_buffer(data_), "% ",
             [this, self](boost::system::error_code ec, size_t length){
                 if(!ec){
-                    // vector<string> token;
-                    // boost::split(token, data_, boost::is_any_of("\n"), boost::token_compress_on);
-                    // cout << "<script>console.log(\"" << data_ << "\")</script>" << flush;
-                    // for(uint i = 0; i != token.size(); i++){
-                    //     if(i != token.size()-1) outputShell(token.at(i) + "&NewLine;");
-                    //     else outputShell(token.at(i));
-                    // }
                     outputShell(data_);
                     data_.clear();
                     do_write();
@@ -78,7 +71,7 @@ private:
         string cmd = cmd_;
         cmd_.clear();
         outputCmd(cmd + "\n");
-        usleep(10000);
+        usleep(200000);
         boost::asio::async_write(socket_, boost::asio::buffer(cmd, cmd.length()),
             [this, self](boost::system::error_code ec, size_t /*length*/){
                 if(!ec){
