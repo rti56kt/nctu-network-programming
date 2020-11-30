@@ -28,12 +28,9 @@ public:
           server_num_(server_num){
     }
 
-    // ~client(){
-    //     file_stream_.close();
-    // }
-
     void start(tcp::resolver::results_type endpoints){
         endpoints_ = endpoints;
+        memset(data_, '\0', sizeof(data_));
         do_connect(endpoints_.begin());
     }
 

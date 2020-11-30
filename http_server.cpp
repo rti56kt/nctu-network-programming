@@ -25,6 +25,7 @@ public:
     }
 
     void start(){
+        memset(data_, '\0', sizeof(data_));
         do_read();
     }
 
