@@ -62,6 +62,7 @@ private:
 
     void do_parse(){
         string data = data_;
+        memset(data_, '\0', sizeof(data_));
         boost::replace_all(data, "\r", "");
         istringstream datastream(data);
         for(int i = 0; i < 2; i++){
