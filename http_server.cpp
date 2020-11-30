@@ -38,9 +38,8 @@ private:
                 cout << socket_.remote_endpoint().address() << ":" << socket_.remote_endpoint().port() << endl;
                 socket_.close();
             }
-            
         });
-        socket_.async_read_some(boost::asio::buffer(data_, max_length),
+        socket_.async_read_some(boost::asio::buffer(data_, max_length-1),
             [this, self](boost::system::error_code ec, size_t length){
                 if(!ec){
                     read_flag = true;

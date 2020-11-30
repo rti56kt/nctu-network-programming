@@ -49,12 +49,17 @@ private:
 
     void do_read(){
         auto self(shared_from_this());
-        boost::asio::async_read_until(socket_, boost::asio::dynamic_buffer(data_), "% ",
+        socket_.async_read_some(boost::asio::buffer(data_, max_length-1),
             [this, self](boost::system::error_code ec, size_t length){
+                string data = data_;
+                memset(data_, '\0', sizeof(data_));
                 if(!ec){
-                    outputShell(data_);
-                    data_.clear();
-                    do_write();
+                    outputShell(data);
+                    if(data.find("% ") != string::npos){
+                        do_write();
+                    }else{
+                        do_read();
+                    }
                 }
                 else if(ec.value() == 2){
                     socket_.close();
@@ -70,8 +75,8 @@ private:
         getline(file_stream_, cmd_);
         string cmd = cmd_;
         cmd_.clear();
-        outputCmd(cmd + "\n");
-        usleep(200000);
+        cmd += "\n";
+        outputCmd(cmd);
         boost::asio::async_write(socket_, boost::asio::buffer(cmd, cmd.length()),
             [this, self](boost::system::error_code ec, size_t /*length*/){
                 if(!ec){
@@ -104,6 +109,7 @@ private:
     ifstream file_stream_;
     int server_num_;
     tcp::resolver::results_type endpoints_;
-    string data_;
+    enum {max_length = 1024};
+    char data_[max_length];
     string cmd_;
 };
