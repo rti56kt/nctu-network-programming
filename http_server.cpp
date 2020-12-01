@@ -157,7 +157,6 @@ private:
     }
 
     void set_env(){
-        clearenv();
         for(map<string, string>::iterator iter = curr_conn_env.begin(); iter != curr_conn_env.end(); iter++){
             setenv((iter->first).c_str(), (iter->second).c_str(), 1);
         }
