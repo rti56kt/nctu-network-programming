@@ -21,6 +21,7 @@ class session
 public:
     session(tcp::socket socket, boost::asio::io_context& io_context, boost::asio::signal_set& signal)
         : socket_(move(socket)),
+          dst_socket_(io_context),
           io_context_(io_context),
           signal_(signal),
           timer_(io_context){
@@ -29,11 +30,11 @@ public:
     void start(){
         memset(data_, '\0', sizeof(data_));
         datalen = 0;
-        read_req();
+        read_req_from_src();
     }
 
 private:
-    void read_req(){
+    void read_req_from_src(){
         auto self(shared_from_this());
         timer_.expires_from_now(chrono::seconds(10));
         timer_.async_wait([this, self](auto ec){
@@ -54,43 +55,98 @@ private:
             });
     }
 
-    void do_connect(){
-        boost::asio::io_context io_context_conn;
-        tcp::socket s_conn(io_context_conn);
-        tcp::resolver r(io_context_conn);
-        tcp::resolver::query q(curr_conn_env["D_IP"], curr_conn_env["D_PORT"]);
-        tcp::endpoint endpoint = r.resolve(q)->endpoint();
-
+    void write_reply_to_src(string resp){
         auto self(shared_from_this());
-        // s_conn.connect(endpoint, [this, self](boost::system::error_code ec){
-        //     if(!ec){
-        //         do_read();
-        //     }
-        //     else{
-        //         cout << "<script>console.log(\"" << ec.message() << "\")</script>" << flush;
-        //     }
-        // });
-    }
-
-    void do_read(){
-        auto self(shared_from_this());
-        socket_.async_read_some(boost::asio::buffer(data_, max_length-1),
-            [this, self](boost::system::error_code ec, size_t length){
-                if(!ec){
-                    
-                }
-            });
-    }
-
-    void do_write(string resp){
-        auto self(shared_from_this());
-
+        // cout << resp << endl;
         boost::asio::async_write(socket_, boost::asio::buffer(resp, resp.length()),
             [this, self](boost::system::error_code ec, size_t /*length*/){
                 if(!ec){
                     // No err
                 }
             });
+    }
+
+    void do_read_from_dst(){
+        auto self(shared_from_this());
+        dst_socket_.async_read_some(boost::asio::buffer(data_, max_length-1),
+            [this, self](boost::system::error_code ec, size_t length){
+                string data((char*)data_, length);
+                memset(data_, '\0', sizeof(data_));
+                if(!ec){
+                    do_write_to_src(data);
+                }
+                else if(ec.value() == 2){
+                    socket_.close();
+                    dst_socket_.close();
+                    exit(EXIT_SUCCESS);
+                }
+                else{
+                    cout << "[ERROR]\t" << ec.message() << endl;
+                }
+            });
+    }
+
+    void do_write_to_dst(string resp){
+        auto self(shared_from_this());
+        // cout << resp << endl;
+        boost::asio::async_write(dst_socket_, boost::asio::buffer(resp, resp.length()),
+            [this, self](boost::system::error_code ec, size_t /*length*/){
+                if(!ec){
+                    do_read_from_src();
+                }
+                else{
+                    cout << "[ERROR]\t" << ec.message() << endl;
+                }
+            });
+    }
+
+    void do_read_from_src(){
+        auto self(shared_from_this());
+        memset(data_, '\0', sizeof(data_));
+        socket_.async_read_some(boost::asio::buffer(data_, max_length-1),
+            [this, self](boost::system::error_code ec, size_t length){
+                string data((char*)data_, length);
+                memset(data_, '\0', sizeof(data_));
+                if(!ec){
+                    do_write_to_dst(data);
+                }
+                else if(ec.value() == 2){
+                    socket_.close();
+                    dst_socket_.close();
+                    exit(EXIT_SUCCESS);
+                }
+                else{
+                    cout << "[ERROR]\t" << ec.message() << endl;
+                }
+            });
+    }
+
+    void do_write_to_src(string resp){
+        auto self(shared_from_this());
+        boost::asio::async_write(socket_, boost::asio::buffer(resp, resp.length()),
+            [this, self](boost::system::error_code ec, size_t /*length*/){
+                if(!ec){
+                    do_read_from_dst();
+                }
+                else{
+                    cout << "[ERROR]\t" << ec.message() << endl;
+                }
+            });
+    }
+
+    void conn_to_dst(tcp::endpoint endpoint){
+        auto self(shared_from_this());
+        memset(data_, '\0', sizeof(data_));
+        dst_socket_.async_connect(endpoint, [this, self](boost::system::error_code ec){
+            if(!ec){
+                do_read_from_src();
+                do_read_from_dst();
+            }
+            else{
+                cout << "[ERROR]\t" << ec.message() << endl;
+                exit(EXIT_FAILURE);
+            }
+        });
 
         return;
     }
@@ -167,25 +223,21 @@ private:
         return;
     }
 
-    string generate_reply(){
+    string generate_reply(ushort port){
         string resp;
         resp += '\0';
         if(curr_conn_env["REPLY"] == "Accept"){
             resp += static_cast<unsigned char>(90);
         }
-        else{
+        else if(curr_conn_env["REPLY"] == "Reject"){
             resp += static_cast<unsigned char>(91);
         }
-        resp += data_[2];
-        resp += data_[3];
-        resp += data_[4];
-        resp += data_[5];
-        resp += data_[6];
-        resp += data_[7];
-        for(unsigned int i = 0; i < resp.length(); i++){
-            bitset<8> x(resp.at(i));
-            cout << x << endl;
-        }
+        resp += (char)(port >> 8 & 0x00FF);
+        resp += (char)(port & 0x00FF);
+        resp += '\0';
+        resp += '\0';
+        resp += '\0';
+        resp += '\0';
 
         return resp;
     }
@@ -205,17 +257,35 @@ private:
             // is the child process. The io_context uses this opportunity to
             // create any internal file descriptors that must be private to
             // the new process.
+            ushort port = 0;
             io_context_.notify_fork(boost::asio::io_context::fork_child);
             signal_.cancel();
             do_parse();
             check_firewall();
             printSocksMsg();
-            do_write(generate_reply());
+            if(curr_conn_env["REPLY"] == "Accept" && curr_conn_env["CMD"] == "BIND"){
+                tcp::endpoint bind_endpoint(tcp::v4(), 0);
+                tcp::acceptor bind_acceptor(io_context_, bind_endpoint);
+                bind_acceptor.listen();
+                port = bind_acceptor.local_endpoint().port();
+                write_reply_to_src(generate_reply(port));
+                bind_acceptor.accept(dst_socket_);
+                write_reply_to_src(generate_reply(port));
+                do_read_from_src();
+                do_read_from_dst();
+            }
+            else{
+                write_reply_to_src(generate_reply(port));
+            }
             if(curr_conn_env["REPLY"] == "Reject"){
                 exit(EXIT_SUCCESS);
             }
-            memset(data_, '\0', sizeof(data_));
-            // do_connect();
+            tcp::resolver r(io_context_);
+            tcp::resolver::query q(curr_conn_env["D_IP"], curr_conn_env["D_PORT"]);
+            tcp::endpoint endpoint = r.resolve(q)->endpoint();
+            if(curr_conn_env["REPLY"] == "Accept" && curr_conn_env["CMD"] == "CONNECT"){
+                conn_to_dst(endpoint);
+            }
         }
         else if(pid > 0){
             // Inform the io_context that the fork is finished (or failed)
@@ -231,6 +301,7 @@ private:
     }
 
     tcp::socket socket_;
+    tcp::socket dst_socket_;
     boost::asio::io_context& io_context_;
     boost::asio::signal_set& signal_;
     boost::asio::steady_timer timer_;
