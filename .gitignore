@@ -49,9 +49,9 @@ Thumbs.db
 *.wmv
 
 # Binary executable files
+hw4.cgi
+http_server
 socks_server
-console.cgi
-cgi_server.exe
 
 # Useless files
 socks.conf
