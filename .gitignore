@@ -54,6 +54,7 @@ http_server
 socks_server
 
 # Useless files
+echo_server.cpp
 socks.conf
 
 # Useless folders
