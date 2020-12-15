@@ -19,11 +19,10 @@ using namespace std;
 class session
     : public enable_shared_from_this<session>{
 public:
-    session(tcp::socket socket, boost::asio::io_context& io_context, boost::asio::signal_set& signal)
+    session(tcp::socket socket, boost::asio::io_context& io_context)
         : socket_(move(socket)),
           dst_socket_(io_context),
           io_context_(io_context),
-          signal_(signal),
           timer_(io_context){
     }
 
@@ -57,7 +56,6 @@ private:
 
     void write_reply_to_src(string resp){
         auto self(shared_from_this());
-        // cout << resp << endl;
         boost::asio::async_write(socket_, boost::asio::buffer(resp, resp.length()),
             [this, self](boost::system::error_code ec, size_t /*length*/){
                 if(!ec){
@@ -81,28 +79,26 @@ private:
                     exit(EXIT_SUCCESS);
                 }
                 else{
-                    cout << "[ERROR]\t" << ec.message() << endl;
+                    cout << "[ERROR]\tdo_read_from_dst:" << ec.message() << endl;
                 }
             });
     }
 
     void do_write_to_dst(string resp){
         auto self(shared_from_this());
-        // cout << resp << endl;
         boost::asio::async_write(dst_socket_, boost::asio::buffer(resp, resp.length()),
             [this, self](boost::system::error_code ec, size_t /*length*/){
                 if(!ec){
                     do_read_from_src();
                 }
                 else{
-                    cout << "[ERROR]\t" << ec.message() << endl;
+                    cout << "[ERROR]\tdo_write_to_dst: " << ec.message() << endl;
                 }
             });
     }
 
     void do_read_from_src(){
         auto self(shared_from_this());
-        memset(data_, '\0', sizeof(data_));
         socket_.async_read_some(boost::asio::buffer(data_, max_length-1),
             [this, self](boost::system::error_code ec, size_t length){
                 string data((char*)data_, length);
@@ -116,7 +112,7 @@ private:
                     exit(EXIT_SUCCESS);
                 }
                 else{
-                    cout << "[ERROR]\t" << ec.message() << endl;
+                    cout << "[ERROR]\tdo_read_from_src: " << ec.message() << endl;
                 }
             });
     }
@@ -129,14 +125,13 @@ private:
                     do_read_from_dst();
                 }
                 else{
-                    cout << "[ERROR]\t" << ec.message() << endl;
+                    cout << "[ERROR]\tdo_write_to_src: " << ec.message() << endl;
                 }
             });
     }
 
     void conn_to_dst(tcp::endpoint endpoint){
         auto self(shared_from_this());
-        memset(data_, '\0', sizeof(data_));
         dst_socket_.async_connect(endpoint, [this, self](boost::system::error_code ec){
             if(!ec){
                 do_read_from_src();
@@ -243,67 +238,38 @@ private:
     }
 
     void do_fork(){
-        int pid = 0;
-
-        io_context_.notify_fork(boost::asio::io_context::fork_prepare);
-        pid = fork();
-        if(pid < 0){
-            io_context_.notify_fork(boost::asio::io_context::fork_parent);
-            cerr << "[ERROR]\thttp_server: Fork error" << endl;
-            socket_.close();
+        ushort port = 0;
+        do_parse();
+        check_firewall();
+        printSocksMsg();
+        if(curr_conn_env["REPLY"] == "Accept" && curr_conn_env["CMD"] == "BIND"){
+            tcp::endpoint bind_endpoint(tcp::v4(), 0);
+            tcp::acceptor bind_acceptor(io_context_, bind_endpoint);
+            bind_acceptor.listen();
+            port = bind_acceptor.local_endpoint().port();
+            write_reply_to_src(generate_reply(port));
+            bind_acceptor.accept(dst_socket_);
+            write_reply_to_src(generate_reply(port));
+            do_read_from_src();
+            do_read_from_dst();
         }
-        else if(pid == 0){
-            // Inform the io_context that the fork is finished and that this
-            // is the child process. The io_context uses this opportunity to
-            // create any internal file descriptors that must be private to
-            // the new process.
-            ushort port = 0;
-            io_context_.notify_fork(boost::asio::io_context::fork_child);
-            signal_.cancel();
-            do_parse();
-            check_firewall();
-            printSocksMsg();
-            if(curr_conn_env["REPLY"] == "Accept" && curr_conn_env["CMD"] == "BIND"){
-                tcp::endpoint bind_endpoint(tcp::v4(), 0);
-                tcp::acceptor bind_acceptor(io_context_, bind_endpoint);
-                bind_acceptor.listen();
-                port = bind_acceptor.local_endpoint().port();
-                write_reply_to_src(generate_reply(port));
-                bind_acceptor.accept(dst_socket_);
-                write_reply_to_src(generate_reply(port));
-                do_read_from_src();
-                do_read_from_dst();
-            }
-            else{
-                write_reply_to_src(generate_reply(port));
-            }
-            if(curr_conn_env["REPLY"] == "Reject"){
-                exit(EXIT_SUCCESS);
-            }
-            tcp::resolver r(io_context_);
-            tcp::resolver::query q(curr_conn_env["D_IP"], curr_conn_env["D_PORT"]);
-            tcp::endpoint endpoint = r.resolve(q)->endpoint();
-            if(curr_conn_env["REPLY"] == "Accept" && curr_conn_env["CMD"] == "CONNECT"){
-                conn_to_dst(endpoint);
-            }
+        else{
+            write_reply_to_src(generate_reply(port));
         }
-        else if(pid > 0){
-            // Inform the io_context that the fork is finished (or failed)
-            // and that this is the parent process. The io_context uses this
-            // opportunity to recreate any internal resources that were
-            // cleaned up during preparation for the fork.
-            io_context_.notify_fork(boost::asio::io_context::fork_parent);
-            cout << "[INFO]\t(" << getpid() << "): Create child: " << pid << endl;
-            // The parent process can now close the newly accepted socket. It
-            // remains open in the child.
-            socket_.close();
+        if(curr_conn_env["REPLY"] == "Reject"){
+            exit(EXIT_SUCCESS);
+        }
+        tcp::resolver r(io_context_);
+        tcp::resolver::query q(curr_conn_env["D_IP"], curr_conn_env["D_PORT"]);
+        tcp::endpoint endpoint = r.resolve(q)->endpoint();
+        if(curr_conn_env["REPLY"] == "Accept" && curr_conn_env["CMD"] == "CONNECT"){
+            conn_to_dst(endpoint);
         }
     }
 
     tcp::socket socket_;
     tcp::socket dst_socket_;
     boost::asio::io_context& io_context_;
-    boost::asio::signal_set& signal_;
     boost::asio::steady_timer timer_;
     enum {max_length = 1024};
     unsigned char data_[max_length];
@@ -343,9 +309,38 @@ private:
     void do_accept(){
         acceptor_.async_accept([this](boost::system::error_code ec, tcp::socket socket){
             if(!ec){
-                cout << "[INFO]\t(" << getpid() << "): Connection from (sock:" << socket.native_handle() << "): " << flush;
-                cout << socket.remote_endpoint().address() << ":" << socket.remote_endpoint().port() << endl;
-                make_shared<session>(move(socket), io_context_, signal_)->start();
+                int pid = 0;
+
+                io_context_.notify_fork(boost::asio::io_context::fork_prepare);
+                pid = fork();
+                if(pid < 0){
+                    io_context_.notify_fork(boost::asio::io_context::fork_parent);
+                    cerr << "[ERROR]\thttp_server: Fork error" << endl;
+                    socket.close();
+                }
+                else if(pid == 0){
+                    // Inform the io_context that the fork is finished and that this
+                    // is the child process. The io_context uses this opportunity to
+                    // create any internal file descriptors that must be private to
+                    // the new process.
+                    io_context_.notify_fork(boost::asio::io_context::fork_child);
+                    acceptor_.close();
+                    signal_.cancel();
+                    cout << "[INFO]\t(" << getpid() << "): Connection from (sock:" << socket.native_handle() << "): " << flush;
+                    cout << socket.remote_endpoint().address() << ":" << socket.remote_endpoint().port() << endl;
+                    make_shared<session>(move(socket), io_context_)->start();
+                }
+                else if(pid > 0){
+                    // Inform the io_context that the fork is finished (or failed)
+                    // and that this is the parent process. The io_context uses this
+                    // opportunity to recreate any internal resources that were
+                    // cleaned up during preparation for the fork.
+                    io_context_.notify_fork(boost::asio::io_context::fork_parent);
+                    cout << "[INFO]\t(" << getpid() << "): Create child: " << pid << endl;
+                    // The parent process can now close the newly accepted socket. It
+                    // remains open in the child.
+                    socket.close();
+                }
             }
 
             do_accept();
