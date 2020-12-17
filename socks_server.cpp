@@ -59,7 +59,9 @@ private:
         boost::asio::async_write(socket_, boost::asio::buffer(resp, resp.length()),
             [this, self](boost::system::error_code ec, size_t /*length*/){
                 if(!ec){
-                    // No err
+                    if(curr_conn_env["REPLY"] == "Reject"){
+                        exit(EXIT_SUCCESS);
+                    }
                 }
             });
     }
@@ -255,9 +257,6 @@ private:
         }
         else{
             write_reply_to_src(generate_reply(port));
-        }
-        if(curr_conn_env["REPLY"] == "Reject"){
-            exit(EXIT_SUCCESS);
         }
         tcp::resolver r(io_context_);
         tcp::resolver::query q(curr_conn_env["D_IP"], curr_conn_env["D_PORT"]);
