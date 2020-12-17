@@ -77,7 +77,7 @@ private:
 
     void check_socks_reply(){
         auto self(shared_from_this());
-        socket_.async_read_some(boost::asio::buffer(data_, max_length-1),
+        socket_.async_read_some(boost::asio::buffer(data_, 8),
             [this, self](boost::system::error_code ec, size_t length){
                 string data(data_, length);
                 memset(data_, '\0', sizeof(data_));
